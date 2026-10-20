@@ -1,0 +1,304 @@
+From aa094df9df3f217accc2da79f49ff424273171e4 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 23:20:59 +0000
+Subject: [PATCH 8/9] TUF-AX3000_V2 hardware layer: sysfs hnd_get_phy_*,
+ GetPhyStatus and apg_switch_* replacing BR63 Realtek-only versions
+ (weakened); build init-broadcom.c/ate.c from source
+
+---
+ release/src/router/rc/Makefile                |   6 +-
+ release/src/router/rc/prebuild/broadcom.o     | Bin 196160 -> 196160 bytes
+ release/src/router/rc/tuf_vlan.c              | 123 ++++++++++++++++++
+ release/src/router/shared/Makefile            |   4 +
+ release/src/router/shared/prebuild/private.o  | Bin 18780 -> 18780 bytes
+ .../router/shared/sysdeps/broadcom/tuf_phy.c  |  82 ++++++++++++
+ 6 files changed, 214 insertions(+), 1 deletion(-)
+ create mode 100644 release/src/router/rc/tuf_vlan.c
+ create mode 100644 release/src/router/shared/sysdeps/broadcom/tuf_phy.c
+
+diff --git a/release/src/router/rc/Makefile b/release/src/router/rc/Makefile
+index 50c9ba4ad..607ee983b 100644
+--- a/release/src/router/rc/Makefile
++++ b/release/src/router/rc/Makefile
+@@ -860,7 +860,7 @@ endif
+ # TUF-AX3000_V2 board functions (BCM53134 LEDs, BCM84880 PHY) extracted from
+ # the TUF 388 GPL closed objects; the BR63 broadcom.o lacks them.
+ ifeq ($(BUILD_NAME),TUF-AX3000_V2)
+-OBJS += tuf_hw.o
++OBJS += tuf_hw.o tuf_vlan.o
+ endif
+ 
+ ifeq ($(and $(CONFIG_BCMWL5),$(RTCONFIG_DUALWAN)),y)
+@@ -1966,6 +1966,9 @@ ifneq ($(wildcard ./prebuild/rpmac.o),)
+ rpmac.o:
+ 	@-cp -f ./prebuild/rpmac.o .
+ endif
++# TUF-AX3000_V2 builds these from source: the shipped prebuilts are compiled
++# for BR63 and lack the TUF board code (BCM53134, BCM84880, LEDs).
++ifneq ($(BUILD_NAME),TUF-AX3000_V2)
+ ifneq ($(wildcard ./prebuild/init-broadcom.o),)
+ init-broadcom.o:
+ 	@-cp -f ./prebuild/init-broadcom.o .
+@@ -1974,6 +1977,7 @@ ifneq ($(wildcard ./prebuild/ate.o),)
+ ate.o:
+ 	@-cp -f ./prebuild/ate.o .
+ endif
++endif
+ ifeq ($(BUILD_NAME),$(filter $(BUILD_NAME),RT-AC68U RT-AC3200 4G-AC68U GT-AC2900 RT-AX58U TUF-AX3000 RT-AX82U DSL-AX82U GS-AX3000 GS-AX5400))
+ ifneq ($(wildcard ./prebuild/cfe.o),)
+ cfe.o:
+diff --git a/release/src/router/rc/prebuild/broadcom.o b/release/src/router/rc/prebuild/broadcom.o
+index 94c53df0b9945653f8280947826ee4d8d22ae1b9..9907f6e3efcbbbba0e67480b59c4551170c44194 100755
+GIT binary patch
+delta 54
+zcmX@`hx@=E?uIRlC3hH=wwK;vwC7}0n!fcZqr9LJ!$XFH@(f@g!pOj&)c*7-<MyXd
+HnW7~CFMkqm
+
+delta 54
+zcmX@`hx@=E?uIRlC3hHwwwK;vwC7|Ln!fcZqr9LH!$XFH@(f@g!pOiN)c*7-<MyXd
+HnW7~CC|?pU
+
+diff --git a/release/src/router/rc/tuf_vlan.c b/release/src/router/rc/tuf_vlan.c
+new file mode 100644
+index 000000000..2f504dc92
+--- /dev/null
++++ b/release/src/router/rc/tuf_vlan.c
+@@ -0,0 +1,123 @@
++/*
++ * TUF-AX3000_V2 replacements for hardware functions that the BR63 prebuilt
++ * broadcom.o implements on top of a Realtek RTL8367S switch (rtkswitch).
++ *
++ * On the TUF every front port is its own netdev (W0=eth0, L1..L4=eth1..eth4,
++ * see get_phy_port_mapping()). The generic APG/SDN code (amas_apg.o) already
++ * builds the VLANs in Linux: access ports are added to the VLAN bridge,
++ * trunk ports get 802.1Q sub-interfaces (apg_create_eth_vlan). The switch
++ * layer therefore only has to make sure the BCM switch does not forward
++ * between front ports on its own, bypassing the Linux bridges.
++ *
++ * The BR63 definitions of these symbols are weakened in
++ * prebuild/broadcom.o so that these take precedence.
++ */
++
++#include <stdio.h>
++#include <string.h>
++#include "rc.h"
++#include "shared.h"
++
++/* Same letters as the other platforms' port status strings. */
++static char conv_speed(int link, unsigned int speed)
++{
++	if (!link)
++		return 'X';
++	switch (speed) {
++	case 10000: return 'T';
++	case 5000:  return 'F';
++	case 2500:  return 'Q';
++	case 1000:  return 'G';
++	default:    return 'M';
++	}
++}
++
++int GetPhyStatus(int verbose, phy_info_list *list)
++{
++	phy_port_mapping port_mapping;
++	char cap_buf[64], out[256] = "";
++	int i, n, link, ret = 0;
++	unsigned int speed;
++
++	get_phy_port_mapping(&port_mapping);
++	if (list)
++		list->count = 0;
++
++	for (i = 0; i < port_mapping.count; i++) {
++		phy_port *p = &port_mapping.port[i];
++
++		/* Only Ethernet WAN/LAN ports have a netdev; USB etc. are reported elsewhere. */
++		if (!p->ifname || !(p->cap & (PHY_PORT_CAP_WAN | PHY_PORT_CAP_LAN)))
++			continue;
++
++		link = hnd_get_phy_status(p->ifname) ? 1 : 0;
++		speed = link ? hnd_get_phy_speed(p->ifname) : 0;
++		if (link && p->phy_port_id >= 0)
++			ret |= 1 << p->phy_port_id;
++
++		n = strlen(out);
++		snprintf(out + n, sizeof(out) - n, "%s=%c;", p->label_name, conv_speed(link, speed));
++
++		if (list && list->count < MAX_PHY_PORT) {
++			phy_info *pi = &list->phy_info[list->count++];
++
++			memset(pi, 0, sizeof(*pi));
++			pi->phy_port_id = p->phy_port_id;
++			snprintf(pi->label_name, sizeof(pi->label_name), "%s", p->label_name);
++			pi->cap = p->cap;
++			snprintf(pi->cap_name, sizeof(pi->cap_name), "%s",
++				get_phy_port_cap_name(p->cap, cap_buf, sizeof(cap_buf)));
++			snprintf(pi->state, sizeof(pi->state), "%s", link ? "up" : "down");
++			pi->link_rate = speed;
++			snprintf(pi->duplex, sizeof(pi->duplex), "%s",
++				!link ? "none" : hnd_get_phy_duplex(p->ifname) ? "full" : "half");
++			pi->tx_bytes = hnd_get_phy_mib(p->ifname, "tx_bytes");
++			pi->rx_bytes = hnd_get_phy_mib(p->ifname, "rx_bytes");
++			pi->tx_packets = hnd_get_phy_mib(p->ifname, "tx_packets");
++			pi->rx_packets = hnd_get_phy_mib(p->ifname, "rx_packets");
++			pi->crc_errors = hnd_get_phy_mib(p->ifname, "rx_crc_errors");
++			pi->flag = p->flag;
++		}
++	}
++
++	if (verbose)
++		puts(out);
++
++	return ret;
++}
++
++/*
++ * Front ports take part in VLANs through Linux bridges and 802.1Q
++ * sub-interfaces, which only works if the switch hands every frame to the
++ * CPU. Turn hardware switching off the first time any VLAN or isolation is
++ * configured; it stays off until reboot.
++ */
++static void tuf_switch_via_cpu(const char *why)
++{
++	static int done;
++
++	if (done)
++		return;
++	done = 1;
++	_dprintf("%s: disabling switch hw-switching (%s)\n", __func__, why);
++	eval("ethswctl", "-c", "hw-switching", "-o", "disable");
++}
++
++void apg_switch_vlan_set(int vid, unsigned int default_portmask, unsigned int trunk_portmask, unsigned int access_portmask)
++{
++	_dprintf("%s: vid=%d default=0x%x trunk=0x%x access=0x%x\n", __func__,
++		vid, default_portmask, trunk_portmask, access_portmask);
++	tuf_switch_via_cpu("vlan set");
++}
++
++void apg_switch_vlan_unset(int vid, unsigned int portmask)
++{
++	_dprintf("%s: vid=%d portmask=0x%x\n", __func__, vid, portmask);
++}
++
++void apg_switch_isolation(int enable, unsigned int portmask)
++{
++	_dprintf("%s: enable=%d portmask=0x%x\n", __func__, enable, portmask);
++	if (enable)
++		tuf_switch_via_cpu("isolation");
++}
+diff --git a/release/src/router/shared/Makefile b/release/src/router/shared/Makefile
+index 1ef6b20cf..f5caa4d9f 100644
+--- a/release/src/router/shared/Makefile
++++ b/release/src/router/shared/Makefile
+@@ -306,6 +306,10 @@ else
+ # Broadcom
+ OBJS += wl.o wl_linux.o
+ OBJS += broadcom.o
++# TUF-AX3000_V2: sysfs port status instead of the BR63 Realtek-only hnd_get_phy_*()
++ifeq ($(BUILD_NAME),TUF-AX3000_V2)
++OBJS += tuf_phy.o
++endif
+ ifeq ($(HND_ROUTER),y)
+ OBJS += $(if $(wildcard sysdeps/api-broadcom.c),api-broadcom.o,prebuild/api-broadcom.o)
+ else
+diff --git a/release/src/router/shared/prebuild/private.o b/release/src/router/shared/prebuild/private.o
+index 54925ddb40c74c414a2be80fdd8a9039870ea2bc..6072c258e71ce38c9fe78cb186cae4eec8319052 100755
+GIT binary patch
+delta 34
+mcmcaJiSf=P#tnCj8I>mAHP#1`ye9HMQr85?-W+T4UjzW&Vhd>i
+
+delta 34
+mcmcaJiSf=P#tnCj8HFa_HP#1`ye9HMQr85?-W+T4UjzW!q6;Yi
+
+diff --git a/release/src/router/shared/sysdeps/broadcom/tuf_phy.c b/release/src/router/shared/sysdeps/broadcom/tuf_phy.c
+new file mode 100644
+index 000000000..bed070255
+--- /dev/null
++++ b/release/src/router/shared/sysdeps/broadcom/tuf_phy.c
+@@ -0,0 +1,82 @@
++/*
++ * TUF-AX3000_V2 port status helpers.
++ *
++ * The BR63 prebuilt private.o implements hnd_get_phy_*() as direct jumps to
++ * the Realtek rtk_get_phy_*() functions, with an int port argument. On the
++ * TUF every front port is a netdev and callers (wanduck, ethmon, watchdog,
++ * GetPhyStatus) pass the ifname, so read the link state from sysfs like the
++ * TUF's own 388 firmware does. The BR63 definitions are weakened in
++ * prebuild/private.o so that these take precedence.
++ */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdint.h>
++#include <bcmnvram.h>
++#include <shutils.h>
++#include <net/if.h>
++#include "shared.h"
++
++/*
++ * Guard against callers compiled with the int-port prototype: map a small
++ * value to the ifname of the port with that phy_port_id instead of
++ * dereferencing it.
++ */
++static const char *port_ifname(const char *ifname)
++{
++	phy_port_mapping port_mapping;
++	static char buf[IFNAMSIZ];
++	int i;
++
++	if ((uintptr_t)ifname >= 4096)
++		return ifname;
++
++	get_phy_port_mapping(&port_mapping);
++	for (i = 0; i < port_mapping.count; i++) {
++		if (port_mapping.port[i].phy_port_id == (int)(uintptr_t)ifname && port_mapping.port[i].ifname) {
++			snprintf(buf, sizeof(buf), "%s", port_mapping.port[i].ifname);
++			return buf;
++		}
++	}
++	return NULL;
++}
++
++static int read_sys(const char *ifname, const char *attr, char *buf, int len)
++{
++	char path[128];
++
++	if (!(ifname = port_ifname(ifname)))
++		return 0;
++	snprintf(path, sizeof(path), "/sys/class/net/%s/%s", ifname, attr);
++	return f_read_string(path, buf, len) > 0;
++}
++
++uint32_t hnd_get_phy_status(char *ifname)
++{
++	char buf[16];
++
++	return read_sys(ifname, "operstate", buf, sizeof(buf)) && !strncmp(buf, "up", 2);
++}
++
++uint32_t hnd_get_phy_speed(char *ifname)
++{
++	char buf[16];
++
++	return read_sys(ifname, "speed", buf, sizeof(buf)) ? strtoul(buf, NULL, 10) : 0;
++}
++
++uint32_t hnd_get_phy_duplex(char *ifname)
++{
++	char buf[16];
++
++	return read_sys(ifname, "duplex", buf, sizeof(buf)) && !strncmp(buf, "full", 4);
++}
++
++uint64_t hnd_get_phy_mib(char *ifname, char *type)
++{
++	char attr[64], buf[32];
++
++	snprintf(attr, sizeof(attr), "statistics/%s", type);
++	return read_sys(ifname, attr, buf, sizeof(buf)) ? strtoull(buf, NULL, 10) : 0;
++}
+-- 
+2.43.0
+

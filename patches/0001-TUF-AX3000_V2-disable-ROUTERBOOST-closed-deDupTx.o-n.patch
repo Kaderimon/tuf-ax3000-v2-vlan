@@ -1,7 +1,7 @@
 From 7d521d11ac66c5de0b9d5c39e2d86139cff643b9 Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:10:42 +0000
-Subject: [PATCH 1/7] TUF-AX3000_V2: disable ROUTERBOOST (closed deDupTx.o not
+Subject: [PATCH 1/9] TUF-AX3000_V2: disable ROUTERBOOST (closed deDupTx.o not
  shipped in BR63 GPL)
 
 ---

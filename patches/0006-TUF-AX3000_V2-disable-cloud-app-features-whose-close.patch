@@ -1,7 +1,7 @@
 From 30f420b07dacd47c5a8256f191659ff9c4250493 Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:37:28 +0000
-Subject: [PATCH 6/7] TUF-AX3000_V2: disable cloud/app features whose closed
+Subject: [PATCH 6/9] TUF-AX3000_V2: disable cloud/app features whose closed
  parts are not in BR63 GPL (Alexa, IFTTT, Google Assistant, Instant Guard,
  notification center, AiCloud/WebDAV, Smart Sync, Download Master)
 

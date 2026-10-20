@@ -1,7 +1,7 @@
 From 0c952375e22d469647f7ece28ea912e3256cc8b7 Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:35:11 +0000
-Subject: [PATCH 4/7] TUF-AX3000_V2: disable UUPLUGIN (closed exec_uu not
+Subject: [PATCH 4/9] TUF-AX3000_V2: disable UUPLUGIN (closed exec_uu not
  shipped in BR63 GPL)
 
 ---

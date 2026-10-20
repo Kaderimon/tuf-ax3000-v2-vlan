@@ -186,6 +186,35 @@ driver, so per-port wired VLAN programming is a no-op. Next step: a TUF
 `rtkswitch` backend (BCM53134 via `ethswctl pmdioaccess` + Linux 802.1Q on the
 per-port netdevs).
 
+### Patches 0008–0009 and first clean build (2026-10-20)
+
+| # | Problem | Fix |
+|---|---|---|
+| 0008 | BR63 `shared/prebuild/private.o`: `hnd_get_phy_status/speed/duplex/mib` are one-instruction jumps to `rtk_get_phy_*` (Realtek) and take an **int port**, while TUF callers (`wanduck.c` WAN cable detection, `ethmon.c`, `watchdog.c`) pass an **ifname** → WAN would always look unplugged | `shared/sysdeps/broadcom/tuf_phy.c`: sysfs (`operstate`, `speed`, `duplex`, `statistics/*`) like the TUF 388 firmware; small ints are mapped to the port's ifname instead of dereferenced. BR63 symbols weakened with `objcopy --weaken-symbol` |
+| 0008 | BR63 `broadcom.o`: `GetPhyStatus` calls the above with int ports; `apg_switch_vlan_set/unset/isolation` drive `rtkswitch` | `rc/tuf_vlan.c`: `GetPhyStatus` over the TUF port map (modelled on the open QCA version, 3006 structs); `apg_switch_*` disable BCM hw-switching once so Linux bridges/802.1Q/`brport/isolated` are authoritative (TUF front ports are netdevs; `amas_apg.o` already does access=`brctl addif`, trunk=`vconfig`). BR63 symbols weakened |
+| 0008 | `rc/Makefile` copied BR63 `prebuild/init-broadcom.o` and `prebuild/ate.o` although full source exists → TUF board init (`init_switch_pre/init_switch` for BCM53134, `generate_switch_para`, jumbo frames, `set_wan_tag`, LEDs) was missing | compile both from source for `TUF-AX3000_V2` |
+| 0009 | rebuilt ATF/U-Boot differ from stock | `bootloaders/stock_boot/TUF-AX3000_V2/{armtf.bin,u-boot-nodtb.bin,dt.dtb}` from stock 388_24049, copied in by `bootloaders/Makefile` (`image_linux_fit`) before the Linux FIT is assembled |
+| 0009 | `emmc_spl` has no prebuilt objects → `make.uboot` loop aborted before copying images / finishing | `BCM_FLASH_LAYOUT_OPTIONS="options_6756_nand"` for TUF in `build/make.uboot` |
+
+Why not reuse the 388 `GetPhyStatus` binary: 3006 added `POE_INFO poe_info` to
+`phy_info` and `seq_no/ui_display/poe_seq_no` to `phy_port`, so the 388 code
+would write with the wrong stride and overflow its `phy_port_mapping` buffer.
+
+Result: `make TUF-AX3000_V2` exits 0. Image
+`TUF-AX3000_V2_3.0.0.6_102_40000-g0c9a8c8_nand_squashfs.pkgtb` (sha256 in `out/SHA256SUMS`):
+
+| Check | Result |
+|---|---|
+| ATF, U-Boot, U-Boot DTB, `fdt_TUF_AX3000_V2` | byte-identical to stock 388_24049 |
+| `tuf_vlan`, `tuf_phy`, TUF `init-broadcom` code | present |
+| VLAN/SDN code, VLAN web pages | present |
+| `vconfig`, `ethswctl`, `CONFIG_VLAN_8021Q=y` | present |
+
+Remaining known gaps: BR63 LED helpers (`setAllLed*`, `setNetLed`) still use
+`rtkswitch` (LAN LEDs may ignore LED-off mode); compiler warns about
+`conflicting types` for `create_sdn_ifcap`, `start_nbr_monitor`,
+`stop_cfgnewob`, `stop_conn_diag_ss` in ASUS's own sources (to review).
+
 How `tuf_hw.o` is made: `objcopy --keep-global-symbol=<fn>` localizes every
 other global of the 388 object (so nothing clashes with the BR63 objects), then
 `ld -r --gc-sections -u <fn>` drops code the function can't reach. Remaining

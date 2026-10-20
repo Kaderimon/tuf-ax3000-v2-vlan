@@ -1,7 +1,7 @@
 From 7705a6296ccb301465009606c990660d88a6757b Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:58:37 +0000
-Subject: [PATCH 7/7] u-boot: use TUF-AX3000_V2 prebuilt uboot/nand_spl objects
+Subject: [PATCH 7/9] u-boot: use TUF-AX3000_V2 prebuilt uboot/nand_spl objects
  from TUF 388 GPL (BR63 dt_parsing.o calls Realtek rtl8367s_init)
 
 ---

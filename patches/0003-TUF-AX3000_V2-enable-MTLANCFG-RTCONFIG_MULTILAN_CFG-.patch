@@ -1,7 +1,7 @@
 From cdb411c5efd3ca5ccd0c9a2721c9ad4941875207 Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:27:57 +0000
-Subject: [PATCH 3/7] TUF-AX3000_V2: enable MTLANCFG (RTCONFIG_MULTILAN_CFG:
+Subject: [PATCH 3/9] TUF-AX3000_V2: enable MTLANCFG (RTCONFIG_MULTILAN_CFG:
  VLAN/SDN, as on BR63)
 
 ---
