@@ -213,7 +213,72 @@ Result: `make TUF-AX3000_V2` exits 0. Image
 Remaining known gaps: BR63 LED helpers (`setAllLed*`, `setNetLed`) still use
 `rtkswitch` (LAN LEDs may ignore LED-off mode); compiler warns about
 `conflicting types` for `create_sdn_ifcap`, `start_nbr_monitor`,
-`stop_cfgnewob`, `stop_conn_diag_ss` in ASUS's own sources (to review).
+`stop_cfgnewob`, `stop_conn_diag_ss` in ASUS's own sources — reviewed:
+implicit declarations of `void` functions used before their definition, no
+closed callers, return values unused; harmless.
+
+### Design decision: hardware switching off when VLANs are used
+
+`apg_switch_vlan_set()` / `apg_switch_isolation(1, …)` in `rc/tuf_vlan.c` run
+`ethswctl -c hw-switching -o disable` once; it stays off until reboot.
+Nothing changes until a VLAN or port isolation is configured.
+
+Why: the SF2 / BCM53134 switches run VLAN-unaware by default.
+
+- Trunk port: if L1 is in `br0` untagged and `eth1.20` is in the VLAN 20
+  bridge, tagged VID 20 frames from L1 could be forwarded by the switch straight
+  to L2 (also in `br0`), never reaching Linux → leak between VLANs.
+- Isolation: `/sys/class/net/<if>/brport/isolated` is a Linux bridge flag the
+  switch does not know about.
+
+With hw-switching off every frame reaches the Linux bridges, so 802.1Q and
+isolation are enforced exactly.
+
+Cost: only wired LAN-port ↔ LAN-port traffic. WAN ↔ LAN and Wi-Fi ↔ wired
+already pass through the CPU on this router. Unknown how much: the BCM6756's
+Archer accelerator / flow cache may still accelerate bridged flows (then close
+to gigabit), or a sustained LAN-LAN copy may load one CPU core and drop below
+gigabit. Must be measured.
+
+Alternatives if the cost matters:
+
+1. Disable hw-switching only for trunk ports / isolation; keep it for plain
+   access-port VLANs, relying on the Broadcom enet driver limiting hardware
+   forwarding to ports in the same Linux bridge (believed, not verified on
+   BCM6756). Small change; needs a leak test.
+2. Program 802.1Q into the switches (SF2 + BCM53134: 802.1Q enable, VLAN table,
+   per-port PVID) via `ethswctl`, using ASUS's `add_ext_53134_vlan()` helpers
+   and the Linux `drivers/net/dsa/b53` register layout. Full-speed hardware
+   enforcement; most work and highest risk (a mistake can cut LAN).
+
+Plan: ship as is for the first hardware test; measure; do (1) if needed, (2) later.
+
+## 5. Hardware test plan
+
+Flashing:
+
+- Boot chain (ATF, U-Boot, DTBs) is byte-identical to stock, so ASUS rescue
+  mode (hold reset while powering on → ASUS Firmware Restoration / TFTP) is the
+  stock one and should be able to restore stock 388 firmware if the new
+  kernel/rootfs fails. Not yet proven.
+- Still connect a serial console (USB-UART on the board's serial header) for
+  the first boot and capture the log.
+- Unknown: whether the stock 388 web updater accepts an image carrying the
+  3006-era FIT property `asus = ASUSFLAG_IN_BOOT`. If rejected, use rescue mode.
+
+Checks, in order:
+
+1. Basics: WAN gets an address (exercises `tuf_phy.c` via `wanduck`), LAN
+   DHCP, both Wi-Fi bands, web UI loads, port status page shows link/speed
+   (`GetPhyStatus`).
+2. Access-port VLAN: one LAN port in a new VLAN; client gets the VLAN's DHCP
+   and cannot reach the main LAN.
+3. Trunk port to a managed switch: tagged VLAN works, untagged main LAN works.
+4. Leak test: tagged frames sent into the trunk port never appear on other
+   ports (`tcpdump -e` on a client of another port).
+5. Throughput: `iperf3` between two wired LAN clients before and after
+   creating a VLAN (cost of hw-switching off); watch CPU with `top`.
+6. Cosmetic: LED-off mode (BR63 LED helpers still call `rtkswitch`).
 
 How `tuf_hw.o` is made: `objcopy --keep-global-symbol=<fn>` localizes every
 other global of the 388 object (so nothing clashes with the BR63 objects), then
@@ -240,7 +305,7 @@ during "hnd_router platform work" is non-fatal; the real blobs live in
 `router-sysdep/hnd_extra/prebuilt/` and `bcmdrivers/*/impl*/`. `rdpa/bdmf/wfd`
 belong to Runner-based chips, not BCM6756.
 
-## 5. Sources
+## 6. Sources
 
 - ASUS TUF-AX3000 V2 firmware: https://www.asus.com/supportonly/tuf-ax3000%20v2/helpdesk_bios/
 - ASUS EBR63 firmware/GPL: https://www.asus.com/supportonly/ebr63/helpdesk_bios/
