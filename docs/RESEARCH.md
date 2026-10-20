@@ -133,7 +133,59 @@ symbols + string constants per function from a relocatable `.o`.)
    TUF port map for `portmask_remap`; restore TUF LED/PHY functions.
 4. Only flash with a serial (UART) console attached for recovery.
 
-## 4. Sources
+## 4. Build log
+
+Environment: `docker/Dockerfile` (Ubuntu 20.04), `./build.sh build TUF-AX3000_V2`.
+The GPL tree is a local git repo (`build/asuswrt`, commit 1 = pristine); every
+source change is exported to [`../patches/`](../patches/).
+
+Gotchas found getting the vendor build system to run:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `xxd is required`, pyelftools/openssl checks | missing host packages | added to Dockerfile |
+| `fatal: empty ident name` | build scripts call git | git identity in image |
+| `Could not retreive version from automake` | toolchain `usr/bin` first in PATH shadows host autotools with broken copies | toolchain appended to PATH |
+| `cc1: libisl.so.15: cannot open` | toolchain binaries have RPATH `/home/defjovi/temp3/toolchain/...` (ASUS build host) | entrypoint symlinks that path to the bundled toolchains |
+| model settings ignored | real target file is `buildtools/target.mak.3004`; `release/src-rt/target.mak` is unused. Model vars are also cached in `src-rt-5.04axhnd.675x/.config` | patch `target.mak.3004`; delete `.config` after changing it |
+| kernel re-config skipped | stamps `build/.done_pre_kernelbuild`, `kernel/linux-4.19/.pre_kernelbuild` | delete stamps |
+
+TUF-specific gaps in the BR63 GPL:
+
+| # | Gap | Resolution |
+|---|---|---|
+| 0001 | `net/netfilter/deDupTx/deDupTx.o` (closed, ROUTERBOOST) not shipped | `ROUTERBOOST=n` for TUF (Router Boost gaming feature dropped) |
+| 0002 | `rc/prebuild/agg_brcm.o` (closed, LACP/BONDING) not shipped | `LACP=n BONDING=n` (link aggregation dropped) |
+| 0003 | `rc/prebuild/amas_wgn.o` not shipped; closed objects were compiled with BR63's `MULTILAN_CFG` | `MTLANCFG=y` — enables VLAN/SDN and turns off `AMAS_WGN` |
+| 0004 | `exec_uu` (closed, UU game accelerator) | `UUPLUGIN=n` |
+| 0005 | rc link: `bcm53134_led_control`, `lan_phy_led_pinmux`, `get_ext_phy_id`, `extphy_bit_op` — TUF board code missing from BR63 `broadcom.o`/`ate-broadcom.o`/`private.o` | extracted from the **TUF 388 GPL** (`GPL_TUF_AX3000_V2_300438823785`) blobs into `rc/prebuild/tuf_hw.o` by [`../tufhw/extract.sh`](../tufhw/extract.sh) and linked only for `BUILD_NAME=TUF-AX3000_V2` |
+
+How `tuf_hw.o` is made: `objcopy --keep-global-symbol=<fn>` localizes every
+other global of the 388 object (so nothing clashes with the BR63 objects), then
+`ld -r --gc-sections -u <fn>` drops code the function can't reach. Remaining
+undefined symbols are libc / libshared / libnvram / wl functions that rc already
+links. Decoded behaviour (via `tools/armdis.py` + `tools/datadump.py`):
+
+- `lan_phy_led_pinmux(force)`: `sw 0xff800554 0`; `sw 0xff800558 (force?0x4012:0x2012)`; `sw 0xff80055c 0x21`
+- `bcm53134_led_control(mode)`: mode 0 → `ethswctl -c pmdioaccess -x 0x0018 -l 2 -d 0` and `-x 0x001a … -d 0`; mode 1 → `-x 0x001a … -d 0`; mode 2 → no-op
+- `get_ext_phy_id()`: probes the BCM84880 via `ethctl_phy_op`, sets nvram, uses `start_envrams`/`popen`
+- `extphy_bit_op(reg,val,wr,start,end,wait_ms)`: masked read/write on the ext PHY
+
+Kernel builds completely with 0001. After changing feature flags, untracked
+`*.o` under `rc/`, `shared/`, `httpd/` are deleted
+(`git ls-files -o --exclude-standard`) so nothing mixes old and new flags; shipped
+prebuilts are tracked in git and untouched.
+
+Remaining closed `rc/prebuild` objects with no source for TUF-relevant options:
+none found besides the above (others are for QCA/Lantiq/Ralink/Realtek/DSL or
+other models: `cfe.o`, `ledg.o`, `rtkmonitor.o`, `rpmac.o`).
+
+Notes: `cp: cannot stat .../bcm96756/main/src/router-sysdep/hnd_extra/prebuilt/*`
+during "hnd_router platform work" is non-fatal; the real blobs live in
+`router-sysdep/hnd_extra/prebuilt/` and `bcmdrivers/*/impl*/`. `rdpa/bdmf/wfd`
+belong to Runner-based chips, not BCM6756.
+
+## 5. Sources
 
 - ASUS TUF-AX3000 V2 firmware: https://www.asus.com/supportonly/tuf-ax3000%20v2/helpdesk_bios/
 - ASUS EBR63 firmware/GPL: https://www.asus.com/supportonly/ebr63/helpdesk_bios/

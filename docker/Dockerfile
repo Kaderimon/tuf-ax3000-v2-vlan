@@ -12,8 +12,8 @@ RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-in
         libglib2.0-dev libltdl-dev liblzma-dev liblzo2-dev libncurses5 libncurses5-dev \
         libslang2 libssl-dev libtool libtool-bin libxml-parser-perl libxml2-dev libyaml-dev \
         lzma lzma-dev m4 make mtd-utils patch perl pkg-config python python2 python3 \
-        python3-distutils rsync sharutils shtool sudo texinfo u-boot-tools unzip uuid-dev \
-        wget xsltproc xutils-dev xz-utils zlib1g-dev \
+        python3-distutils python3-pip python3-pyelftools openssl rsync sharutils shtool sudo texinfo u-boot-tools unzip uuid-dev \
+        wget xsltproc xutils-dev xxd xz-utils zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Broadcom build scripts expect /bin/sh to be bash.
@@ -26,5 +26,7 @@ RUN groupadd -g ${GID} builder && useradd -m -u ${UID} -g ${GID} -s /bin/bash bu
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 USER builder
+RUN git config --global user.email builder@localhost && git config --global user.name builder \
+    && git config --global --add safe.directory "*"
 WORKDIR /src
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

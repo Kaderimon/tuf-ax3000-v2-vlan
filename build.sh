@@ -3,7 +3,7 @@
 #   image  - build the docker image
 #   shell  - interactive shell in the build container
 #   build  - build firmware (default target TUF-AX3000_V2), log to logs/
-set -e
+set -eo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"
 IMAGE=tuf-fw-builder
