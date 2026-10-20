@@ -1,0 +1,10 @@
+#!/bin/sh
+# /jffs/scripts/usb-mount-script - run at boot by the asusware USB hook
+# Only act once per boot (the hook fires on every USB mount).
+[ -f /tmp/.vlan_started ] && exit 0
+touch /tmp/.vlan_started
+
+sleep 30   # let the firmware finish bringing up LAN/WAN/firewall
+/jffs/scripts/jas.sh custom-configs start 2>/dev/null
+/jffs/scripts/vlan.sh start
+service restart_dnsmasq

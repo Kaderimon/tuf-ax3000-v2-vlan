@@ -1,0 +1,5 @@
+build/
+downloads/
+logs/
+*.pkgtb
+*.trx

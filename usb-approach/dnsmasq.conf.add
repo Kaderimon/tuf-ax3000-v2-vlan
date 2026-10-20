@@ -1,0 +1,5 @@
+# appended to /etc/dnsmasq.conf by jacklul custom-configs
+interface=brvlan20
+dhcp-range=brvlan20,192.168.20.100,192.168.20.200,255.255.255.0,86400s
+dhcp-option=brvlan20,3,192.168.20.1
+dhcp-option=brvlan20,6,192.168.20.1
