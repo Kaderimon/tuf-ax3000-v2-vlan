@@ -1,7 +1,7 @@
 From e74f4a9b944680f83e5a33ee5cb0d4a9098352d0 Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:35:11 +0000
-Subject: [PATCH 5/5] rc: link TUF-AX3000_V2 board functions (tuf_hw.o,
+Subject: [PATCH 5/7] rc: link TUF-AX3000_V2 board functions (tuf_hw.o,
  extracted from TUF 388 GPL blobs by tufhw/extract.sh)
 
 ---

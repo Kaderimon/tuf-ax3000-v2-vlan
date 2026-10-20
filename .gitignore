@@ -4,3 +4,4 @@ logs/
 *.pkgtb
 *.trx
 tufhw/out/
+out/

@@ -160,6 +160,32 @@ TUF-specific gaps in the BR63 GPL:
 | 0004 | `exec_uu` (closed, UU game accelerator) | `UUPLUGIN=n` |
 | 0005 | rc link: `bcm53134_led_control`, `lan_phy_led_pinmux`, `get_ext_phy_id`, `extphy_bit_op` — TUF board code missing from BR63 `broadcom.o`/`ate-broadcom.o`/`private.o` | extracted from the **TUF 388 GPL** (`GPL_TUF_AX3000_V2_300438823785`) blobs into `rc/prebuild/tuf_hw.o` by [`../tufhw/extract.sh`](../tufhw/extract.sh) and linked only for `BUILD_NAME=TUF-AX3000_V2` |
 
+| 0006 | httpd link: IFTTT/Alexa, Instant Guard (`ig_*`) closed parts | disabled TUF-only cloud features: `ALEXA IFTTT GOOGLE_ASST INSTANT_GUARD NOTIFICATION_CENTER SMARTSYNCBASE WEBDAV =n`, `APP="none"` |
+| 0007 | U-Boot link: BR63 prebuilt `dt_parsing.o` calls Realtek `rtl8367s_init` | replaced the 8 prebuilt objects in `bootloaders/obj/{uboot,nand_spl}` with the TUF 388 GPL ones (3 of 8 differ) |
+| — | `bootloaders/obj/emmc_spl` fails (no prebuilt objects) | open; irrelevant for NAND, but stops `make` after the NAND image is written |
+
+### First image (2026-10-20)
+
+`bootloaders/obj/binaries/TUF-AX3000_V2_3.0.0.6_102_40000-g7705a62_nand_squashfs.pkgtb` (55 MB)
+
+| Check | Result |
+|---|---|
+| FIT description / compatible | `TUF-AX3000_V2`, `chip=6756;rev=a0+;flash=nand` — same as stock |
+| Signature | none (stock TUF is unsigned too) |
+| Extra FIT prop | `asus = ASUSFLAG_IN_BOOT` (3006-era; also on EBR63) — effect on 388 updater unknown |
+| `fdt_TUF_AX3000_V2`, `fdt_uboot` | byte-identical to stock |
+| ATF, U-Boot | rebuilt, differ from stock → **plan: swap in stock TUF ATF/U-Boot before any flash** |
+| rc VLAN/SDN code | present (same marker count as EBR63; stock TUF has none) |
+| Web UI | `Advanced_VLAN_Profile_Content.asp`, `Advanced_VLAN_Switch_Content.asp`, `SDN.asp` |
+| `tuf_hw.o` functions | linked in rc |
+| Kernel modules | 127 (= stock), incl. `wl`, `bcm_enet`, `archer`, `pktflow` |
+
+**Known gap:** the closed `apg_switch_*` VLAN code runs `rtkswitch <cmd>`
+(Realtek backend, `/dev/rtkswitch`); the TUF image has neither the applet nor the
+driver, so per-port wired VLAN programming is a no-op. Next step: a TUF
+`rtkswitch` backend (BCM53134 via `ethswctl pmdioaccess` + Linux 802.1Q on the
+per-port netdevs).
+
 How `tuf_hw.o` is made: `objcopy --keep-global-symbol=<fn>` localizes every
 other global of the 388 object (so nothing clashes with the BR63 objects), then
 `ld -r --gc-sections -u <fn>` drops code the function can't reach. Remaining

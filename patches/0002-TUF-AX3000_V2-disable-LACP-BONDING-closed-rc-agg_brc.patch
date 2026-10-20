@@ -1,7 +1,7 @@
 From e30fc632948bfdcd9fb23a272444cf5aca632a9d Mon Sep 17 00:00:00 2001
 From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 22:27:09 +0000
-Subject: [PATCH 2/5] TUF-AX3000_V2: disable LACP/BONDING (closed rc agg_brcm.o
+Subject: [PATCH 2/7] TUF-AX3000_V2: disable LACP/BONDING (closed rc agg_brcm.o
  not shipped in BR63 GPL)
 
 ---
