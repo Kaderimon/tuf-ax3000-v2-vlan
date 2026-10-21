@@ -200,7 +200,7 @@ Why not reuse the 388 `GetPhyStatus` binary: 3006 added `POE_INFO poe_info` to
 `phy_info` and `seq_no/ui_display/poe_seq_no` to `phy_port`, so the 388 code
 would write with the wrong stride and overflow its `phy_port_mapping` buffer.
 
-Result: `make TUF-AX3000_V2` exits 0. Image
+Result: `make TUF-AX3000_V2` exits 0. Image (superseded by g5361b12 below)
 `TUF-AX3000_V2_3.0.0.6_102_40000-g0c9a8c8_nand_squashfs.pkgtb` (sha256 in `out/SHA256SUMS`):
 
 | Check | Result |
@@ -216,6 +216,37 @@ Remaining known gaps: BR63 LED helpers (`setAllLed*`, `setNetLed`) still use
 `stop_cfgnewob`, `stop_conn_diag_ss` in ASUS's own sources — reviewed:
 implicit declarations of `void` functions used before their definition, no
 closed callers, return values unused; harmless.
+
+### Static verification and patch 0010 (2026-10-21)
+
+`tools/verify.sh <new.pkgtb> <stock.pkgtb>` checks an image without flashing
+(work files in `out/verify/`; needs the `tuf-fw-builder` docker image for `lzop`):
+
+| Check | Tool |
+|---|---|
+| outer FIT image sha256 | `pkgsplit.py` |
+| ATF, U-Boot, U-Boot DTB, `fdt_TUF_AX3000_V2` byte-identical to stock | `fitget.py` + `cmp` |
+| kernel in image == build tree `arch/arm/boot/Image` | SDK `hostTools/prebuilt/lzop` |
+| all modules: same vermagic; every undefined symbol exported by the kernel (`System.map`) or another module | `kocheck.py` |
+| every ELF finds its `NEEDED` libs and resolves its strong undefined symbols in its load scope; reports problems absent from stock | `elfcheck.py`, `elfdiff.py` |
+| files in stock but not in the new rootfs | `comm` |
+
+First run found three programs broken that work on stock (stock: none):
+
+| # | Problem | Fix |
+|---|---|---|
+| 0010 | `lld2d` needs `libbcm_crc.so` (not built): `lltd.arm/Makefile` picks `lld2d.6755axhnd` only for 5.02 SDK flags, so 6756 got `lld2d.hnd` | add `HND_ROUTER_AX_6756`; `lld2d.6755axhnd` has the same dependencies as stock TUF / EBR63 `lld2d` |
+| 0010 | prebuilt EBR63 `aaews`/`mastiff` import `vpns_use_tunnel`, `is_wgs_use_tunnel`, defined in `shared/misc.c` only with `RTCONFIG_UAC_TUNNEL` (EBR63 business/multisite option, off for TUF) → lazy-binding crash when reached (ASUS app remote access) | `return 0` stubs in the `#else` branch (no UAC tunnel exists) |
+
+Reviewed, not a problem: busybox `switch_root`/`pivot_root`/`chroot`/`fuser`
+are missing (also missing in stock EBR63; rc only uses them with
+`RTCONFIG_TEMPROOTFS`, off for TUF as on stock); `ifenslave` (`BONDING=n`),
+WebDAV/AiCloud/Download Master/IFTTT/Alexa files (0006), mobile QIS and EULA
+pages (unreferenced; absent in EBR63 too), `rom/etc/ssl/certs/letsencrypt.pem`
+(unreferenced; `ca-certificates.crt` present).
+
+Result: image `TUF-AX3000_V2_3.0.0.6_102_40000-g5361b12_nand_squashfs.pkgtb`,
+all checks pass.
 
 ### Design decision: hardware switching off when VLANs are used
 

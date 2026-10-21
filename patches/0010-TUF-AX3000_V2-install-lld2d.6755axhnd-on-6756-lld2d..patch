@@ -1,0 +1,43 @@
+From 5361b126043bdf079982f92026b6fbb53d144a99 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 00:23:38 +0000
+Subject: [PATCH] TUF-AX3000_V2: install lld2d.6755axhnd on 6756 (lld2d.hnd
+ needs absent libbcm_crc.so); stub vpns_use_tunnel/is_wgs_use_tunnel without
+ UAC_TUNNEL (imported by prebuilt aaews/mastiff)
+
+---
+ release/src/router/lltd.arm/Makefile | 2 +-
+ release/src/router/shared/misc.c     | 4 ++++
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/release/src/router/lltd.arm/Makefile b/release/src/router/lltd.arm/Makefile
+index f2f275d65..3e8701a9a 100644
+--- a/release/src/router/lltd.arm/Makefile
++++ b/release/src/router/lltd.arm/Makefile
+@@ -12,7 +12,7 @@ install: all
+ ifneq ($(HND_ROUTER),y)
+ 	install lld2d $(INSTALLDIR)/usr/sbin
+ else
+-ifeq ($(or $(HND_ROUTER_AX_675X),$(HND_ROUTER_AX_6710),$(BCM_502L07P2)),y)
++ifeq ($(or $(HND_ROUTER_AX_675X),$(HND_ROUTER_AX_6756),$(HND_ROUTER_AX_6710),$(BCM_502L07P2)),y)
+ 	install lld2d.6755axhnd $(INSTALLDIR)/usr/sbin/lld2d
+ else ifeq ($(HND_ROUTER_BE_4916),y)
+ 	echo "skip router/lltd.arm/lld2d"
+diff --git a/release/src/router/shared/misc.c b/release/src/router/shared/misc.c
+index 356d5e890..c12eee382 100755
+--- a/release/src/router/shared/misc.c
++++ b/release/src/router/shared/misc.c
+@@ -7466,6 +7466,10 @@ int vpnc_use_tunnel(int vpnc_unit, const char* proto)
+ 	}
+ 	return 0;
+ }
++#else
++/* Prebuilt aaews/mastiff (built with UAC_TUNNEL) import these; without it no tunnel is in use. */
++int is_wgs_use_tunnel(const char *wgs_idx, const char *caller, const char *port) { return 0; }
++int vpns_use_tunnel(void) { return 0; }
+ #endif
+ 
+ #if defined(RTCONFIG_ACCOUNT_BINDING)
+-- 
+2.43.0
+

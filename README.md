@@ -6,7 +6,7 @@ VLAN support for the ASUS TUF-AX3000 V2 without Asuswrt-Merlin.
 |---|---|
 | [`usb-approach/`](usb-approach/) | Works on stock firmware: SSH + USB startup hook + `vlan.sh` |
 | [`docs/RESEARCH.md`](docs/RESEARCH.md) | Full analysis: stock vs EBR63 3.0.0.6.102 firmware, GPL, Merlin, blockers, plan |
-| [`tools/`](tools/) | Firmware analysis helpers (FIT/DTB parsers, `.o` relocation summariser) |
+| [`tools/`](tools/) | Firmware analysis helpers (FIT/DTB parsers, `.o` relocation summariser); `verify.sh` statically checks a built image against stock |
 | `docker/`, `build.sh` | Reproducible build environment for the 3.0.0.6.102 GPL tree |
 | `build/` (ignored) | Extracted EBR63 GPL 3.0.0.6.102_44547 |
 | `downloads/` (ignored) | Original ASUS zips |
