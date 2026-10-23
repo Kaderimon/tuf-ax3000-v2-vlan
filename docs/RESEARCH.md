@@ -238,6 +238,7 @@ First run found three programs broken that work on stock (stock: none):
 | 0010 | `lld2d` needs `libbcm_crc.so` (not built): `lltd.arm/Makefile` picks `lld2d.6755axhnd` only for 5.02 SDK flags, so 6756 got `lld2d.hnd` | add `HND_ROUTER_AX_6756`; `lld2d.6755axhnd` has the same dependencies as stock TUF / EBR63 `lld2d` |
 | 0010 | prebuilt EBR63 `aaews`/`mastiff` import `vpns_use_tunnel`, `is_wgs_use_tunnel`, defined in `shared/misc.c` only with `RTCONFIG_UAC_TUNNEL` (EBR63 business/multisite option, off for TUF) → lazy-binding crash when reached (ASUS app remote access) | `return 0` stubs in the `#else` branch (no UAC tunnel exists) |
 | 0011 | `sync_boot_state()` would commit the test image as soon as its services start, removing the power-cycle fallback to stock | early return for `TUFAX3000_V2` (see §5 Flashing) |
+| 0012 | found on hardware: web UI login → 404 on `/index.html?current_theme=white`. Prebuilt EBR63 `libwebapi/prebuild/priv_webapi.o` `get_ui_support_info()` adds `"BUSINESS": 1` unconditionally, so `state.js` redirects to the ExpertWiFi UI, which TUF does not ship (`httpd`'s own flag is correctly gated on `RTCONFIG_BUSINESS`) | `tools/patchinsn.py priv_webapi.o 25c8 e3a00001 e3a00000` (`mov r0,#1` → `#0` before the `BUSINESS` key) |
 
 Reviewed, not a problem: busybox `switch_root`/`pivot_root`/`chroot`/`fuser`
 are missing (also missing in stock EBR63; rc only uses them with
@@ -315,6 +316,15 @@ Flashing (dual image, no serial needed for early failures):
   the first boot and capture the log.
 - Unknown: whether the stock 388 web updater accepts an image carrying the
   3006-era FIT property `asus = ASUSFLAG_IN_BOOT`. If rejected, use rescue mode.
+
+First hardware boot, 2026-10-23, image gb32cae9 (no serial): flashed from
+stock over SSH, one-time boot into Second worked (`reset_status` 0x20000000,
+Second uncommitted). Before the one-time reboot, `bcm_bootstate` still shows
+PART1: the kernel only reads back `reset_reason` after a software reset
+(after power-on, `reset_status` 0x80000000 and `reset_reason` reads
+ffffffff). Working: kernel (no oops), WAN DHCP + 2.5G port detection,
+LAN DHCP, both Wi-Fi bands, port link via sysfs, SSH login kept from 388
+nvram. Broken: web UI after login (→ 0012).
 
 Checks, in order:
 

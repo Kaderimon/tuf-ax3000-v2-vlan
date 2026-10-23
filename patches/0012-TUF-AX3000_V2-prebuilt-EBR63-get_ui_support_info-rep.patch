@@ -1,0 +1,23 @@
+From deca9874094bce99221b459b0282a9b03c44a12a Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 17:32:04 +0000
+Subject: [PATCH] TUF-AX3000_V2: prebuilt EBR63 get_ui_support_info() reports
+ BUSINESS=0 (hard-coded 1 sends the web UI to the absent ExpertWiFi
+ /index.html); tools/patchinsn.py priv_webapi.o 25c8 e3a00001 e3a00000
+
+---
+ .../router/libwebapi/prebuild/priv_webapi.o   | Bin 62684 -> 62684 bytes
+ 1 file changed, 0 insertions(+), 0 deletions(-)
+
+diff --git a/release/src/router/libwebapi/prebuild/priv_webapi.o b/release/src/router/libwebapi/prebuild/priv_webapi.o
+index 926f19a1935e31cb4f4ff84cdf6a955047675fb4..b6107a9290f6a268c99bf66e2bdb8f5ad3731481 100755
+GIT binary patch
+delta 16
+YcmccflKIX{<_&*T85uVJRlR=>08KLp<p2Nx
+
+delta 17
+ZcmccflKIX{<_&*TCn<7lW>LFw4ggd}2%rD}
+
+-- 
+2.43.0
+
