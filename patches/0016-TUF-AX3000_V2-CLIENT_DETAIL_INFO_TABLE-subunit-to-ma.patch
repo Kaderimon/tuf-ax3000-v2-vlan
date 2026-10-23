@@ -1,0 +1,29 @@
+From dfd7466e48d8143142fff4ba235e63908dd06b3c Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 20:35:47 +0000
+Subject: [PATCH 16/17] TUF-AX3000_V2: CLIENT_DETAIL_INFO_TABLE subunit[] to
+ match closed BR63 networkmap
+
+The prebuilt networkmap was built with RTCONFIG_CAPTIVE_PORTAL and creates a
+260644-byte client table; httpd without it expected 260388 bytes and read
+ip_mac_num from the wrong offset, so the client list was always empty.
+---
+ release/src/router/networkmap/networkmap.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/release/src/router/networkmap/networkmap.h b/release/src/router/networkmap/networkmap.h
+index ebdc5d867..c01995dd9 100644
+--- a/release/src/router/networkmap/networkmap.h
++++ b/release/src/router/networkmap/networkmap.h
+@@ -272,7 +272,7 @@ typedef struct {
+ #if defined(RTCONFIG_BCMARM) || defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK)
+ 	char 		wireless_auth[MAX_NR_CLIENT_LIST][32];
+ #endif
+-#if defined(RTCONFIG_FBWIFI) || defined(RTCONFIG_CAPTIVE_PORTAL)
++#if defined(RTCONFIG_FBWIFI) || defined(RTCONFIG_CAPTIVE_PORTAL) || defined(TUFAX3000_V2)	/* closed BR63 networkmap has CAPTIVE_PORTAL */
+ 	char		subunit[MAX_NR_CLIENT_LIST];
+ #endif
+ #if (defined(RTCONFIG_BWDPI) || defined(RTCONFIG_BWDPI_DEP))
+-- 
+2.43.0
+

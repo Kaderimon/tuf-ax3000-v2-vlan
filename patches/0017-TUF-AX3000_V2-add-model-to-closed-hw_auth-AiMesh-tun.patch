@@ -1,0 +1,26 @@
+From 69420e1fef60fef3950b0912fb478787b130fba1 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 20:48:51 +0000
+Subject: [PATCH 17/17] TUF-AX3000_V2: add model to closed hw_auth
+ AiMesh/tunnel whitelist
+
+getAmasSupportMode() in the BR63 hw_auth.o only returns a mode for BR63,
+EBR63 and ExpertWiFi_EBR63, so amas_support=0 and libwebapi reported
+mtlancfg=0, hiding the VLAN/SDN UI. Rename the ExpertWiFi_EBR63 entry
+(tools/patchstr.py).
+---
+ .../src/router/sw-hw-auth/prebuild/hw_auth.o  | Bin 15992 -> 15992 bytes
+ 1 file changed, 0 insertions(+), 0 deletions(-)
+
+diff --git a/release/src/router/sw-hw-auth/prebuild/hw_auth.o b/release/src/router/sw-hw-auth/prebuild/hw_auth.o
+index e130d6434ac0571ee34af4ccaa1acb4640b398cd..4841498ec8c92c0860c13100dc970e0210435e54 100755
+GIT binary patch
+delta 29
+lcmexS^P^_N5qW`-P&Zx22x9{SgZMBb1_p-BSLBz-0RXfG3R3_8
+
+delta 29
+lcmexS^P^_N5qSaEih|UllJHEo%y?I)AT#65SLBz-0RYdt4153p
+
+-- 
+2.43.0
+
