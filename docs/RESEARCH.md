@@ -237,6 +237,7 @@ First run found three programs broken that work on stock (stock: none):
 |---|---|---|
 | 0010 | `lld2d` needs `libbcm_crc.so` (not built): `lltd.arm/Makefile` picks `lld2d.6755axhnd` only for 5.02 SDK flags, so 6756 got `lld2d.hnd` | add `HND_ROUTER_AX_6756`; `lld2d.6755axhnd` has the same dependencies as stock TUF / EBR63 `lld2d` |
 | 0010 | prebuilt EBR63 `aaews`/`mastiff` import `vpns_use_tunnel`, `is_wgs_use_tunnel`, defined in `shared/misc.c` only with `RTCONFIG_UAC_TUNNEL` (EBR63 business/multisite option, off for TUF) → lazy-binding crash when reached (ASUS app remote access) | `return 0` stubs in the `#else` branch (no UAC tunnel exists) |
+| 0011 | `sync_boot_state()` would commit the test image as soon as its services start, removing the power-cycle fallback to stock | early return for `TUFAX3000_V2` (see §5 Flashing) |
 
 Reviewed, not a problem: busybox `switch_root`/`pivot_root`/`chroot`/`fuser`
 are missing (also missing in stock EBR63; rc only uses them with
@@ -246,7 +247,9 @@ pages (unreferenced; absent in EBR63 too), `rom/etc/ssl/certs/letsencrypt.pem`
 (unreferenced; `ca-certificates.crt` present).
 
 Result: image `TUF-AX3000_V2_3.0.0.6_102_40000-g5361b12_nand_squashfs.pkgtb`,
-all checks pass.
+all checks pass. With 0011: `…-gb32cae9_nand_squashfs.pkgtb` (sha256
+`0e5457b7…469e`), all checks pass; `rc` contains "auto-commit disabled" and no
+longer the "reset bootstate" strings.
 
 ### Design decision: hardware switching off when VLANs are used
 
@@ -286,8 +289,24 @@ Plan: ship as is for the first hardware test; measure; do (1) if needed, (2) lat
 
 ## 5. Hardware test plan
 
-Flashing:
+Flashing (dual image, no serial needed for early failures):
 
+- NAND holds two image slots. The loader TPL (not in the `.pkgtb`, never
+  rewritten; do not flash a `*_loader.pkgtb`) boots the committed slot, or the
+  other one once after a reboot with boot reason ACTIVATE; it then overwrites
+  the boot reason, so any later reset returns to the committed slot
+  (`bcmbca/board_tpl.c`). Stock ships `/bin/bcm_bootstate` to read/set this.
+- The web updater runs `bcm_flasher … 1` and commits the new slot at once, so
+  flash over SSH instead. Device on 2026-10-23: booted First, committed 1,
+  seq 3,2, state `BOOT_SET_PART1_IMAGE`.
+- Stock `rc` commits whatever booted (`sync_boot_state()`) once all services
+  started. Patch 0011 disables that in this build, so the new image stays
+  uncommitted until done by hand.
+- Procedure: `bcm_flasher /tmp/<image>.pkgtb` (writes Second, seq 4);
+  `bcm_bootstate 5` (commit First); `bcm_bootstate 8` (PART2_IMAGE_ONCE);
+  `bcm_bootstate` must show First commit 1, Second commit 0, Reboot Partition
+  Second; then `reboot` (not a power cycle). Failure: pull power → stock.
+  Success: `bcm_bootstate 7` to keep it.
 - Boot chain (ATF, U-Boot, DTBs) is byte-identical to stock, so ASUS rescue
   mode (hold reset while powering on → ASUS Firmware Restoration / TFTP) is the
   stock one and should be able to restore stock 388 firmware if the new

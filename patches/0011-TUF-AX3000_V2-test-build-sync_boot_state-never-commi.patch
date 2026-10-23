@@ -1,0 +1,32 @@
+From b32cae95b124401382a505e54f9c895ad8e7cf10 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 17:04:18 +0000
+Subject: [PATCH] TUF-AX3000_V2 test build: sync_boot_state() never commits the
+ running image (manual bcm_bootstate commit, power-cycle fallback to stock)
+
+---
+ release/src/router/rc/init.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/release/src/router/rc/init.c b/release/src/router/rc/init.c
+index 5aa9c02f6..7cb88d33c 100755
+--- a/release/src/router/rc/init.c
++++ b/release/src/router/rc/init.c
+@@ -24139,6 +24139,14 @@ void sync_boot_state()
+ {
+ 	int matched = 0;
+ 
++#ifdef TUFAX3000_V2
++	/* Test build: never commit the running image. A reboot armed with
++	 * "bcm_bootstate 8" (PART2_IMAGE_ONCE) falls back to the committed
++	 * stock image on any later reset; commit by hand with "bcm_bootstate 7". */
++	_dprintf("%s, auto-commit disabled\n", __func__);
++	return;
++#endif
++
+ 	matched = chk_same_boot_policy();
+ 
+ 	/* Assume this is first time boot after upgrading fw */
+-- 
+2.43.0
+
