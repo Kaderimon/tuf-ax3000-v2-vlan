@@ -2,6 +2,10 @@
 
 Goal: VLAN support on a TUF-AX3000 V2 without installing Asuswrt-Merlin.
 
+Status (2026-10-23): approach B runs on the router as a one-time-boot test
+image (`g69420e1`). VLANs over a trunk port work (§6). How to build and try it:
+[`../README.md`](../README.md). Procedure and bring-up log: §5.
+
 ## 1. Starting point
 
 | | |
@@ -133,6 +137,15 @@ symbols + string constants per function from a relocatable `.o`.)
    TUF port map for `portmask_remap`; restore TUF LED/PHY functions.
 4. Only flash with a serial (UART) console attached for recovery.
 
+Outcome:
+1. Done (§4, 0001–0007).
+2. Done (0003).
+3. Done differently. There is no `rtkswitch` backend. Instead, `apg_switch_*`
+   is replaced so that Linux bridges and 802.1Q do the VLAN work (0008, design
+   note in §4). TUF PHY/LED functions are restored (0005, 0008).
+4. Replaced by the dual-image one-time boot (§5). No serial console was needed
+   so far.
+
 ## 4. Build log
 
 Environment: `docker/Dockerfile` (Ubuntu 20.04), `./build.sh build TUF-AX3000_V2`.
@@ -237,13 +250,6 @@ First run found three programs broken that work on stock (stock: none):
 |---|---|---|
 | 0010 | `lld2d` needs `libbcm_crc.so` (not built): `lltd.arm/Makefile` picks `lld2d.6755axhnd` only for 5.02 SDK flags, so 6756 got `lld2d.hnd` | add `HND_ROUTER_AX_6756`; `lld2d.6755axhnd` has the same dependencies as stock TUF / EBR63 `lld2d` |
 | 0010 | prebuilt EBR63 `aaews`/`mastiff` import `vpns_use_tunnel`, `is_wgs_use_tunnel`, defined in `shared/misc.c` only with `RTCONFIG_UAC_TUNNEL` (EBR63 business/multisite option, off for TUF) → lazy-binding crash when reached (ASUS app remote access) | `return 0` stubs in the `#else` branch (no UAC tunnel exists) |
-| 0011 | `sync_boot_state()` would commit the test image as soon as its services start, removing the power-cycle fallback to stock | early return for `TUFAX3000_V2` (see §5 Flashing) |
-| 0012 | found on hardware: web UI login → 404 on `/index.html?current_theme=white`. Prebuilt EBR63 `libwebapi/prebuild/priv_webapi.o` `get_ui_support_info()` adds `"BUSINESS": 1` unconditionally, so `state.js` redirects to the ExpertWiFi UI, which TUF does not ship (`httpd`'s own flag is correctly gated on `RTCONFIG_BUSINESS`) | `tools/patchinsn.py priv_webapi.o 25c8 e3a00001 e3a00000` (`mov r0,#1` → `#0` before the `BUSINESS` key) |
-| 0013 | found on hardware: VPN server/client pages broken, `top.cachedData` undefined in `httpApi.js`. 3006 `httpApi.js` keeps its cache on `top`, which only the BUSINESS wrapper defines; `Advanced_VPN*_Content.asp` iframes `VPN/vpn*.html` and does not load `httpApi.js` | `httpApi.js`: `if(!top.cachedData) top.cachedData = cachedData;` |
-| 0014 | found on hardware: Adaptive QoS / Bandwidth Monitor pages are empty 200 responses. `httpd` serves DPI pages only if `dump_dpi_support()`; prebuilt EBR63 `bwdpi_source/asus/prebuild/libbwdpi.so` has a per-model table with only `ExpertWiFi_EBR63` (stock TUF lib: `TUF-AX3000`, `TUF-AX3000_V2`, same 9-entry bitmap, all 1) | `tools/patchstr.py libbwdpi.so ExpertWiFi_EBR63 TUF-AX3000_V2`. Engine binaries (`tdts.ko`, `shn_ctrl`, `dcd`, `tcd`, `wred`, `tdts_rule_agent`) are byte-identical to stock; `model.enc` differs (8 KiB EBR63 vs 2 KiB stock), left as EBR63 |
-| 0015 | found on hardware: client list, system status, QoS data empty while logged in; every `appGet.cgi` returns the login redirect. Prebuilt BR63 `httpd/prebuild/web_hook.o` `referer_check()` (built with `RTCONFIG_BUSINESS`) accepts a Referer only equal to the LAN IP or starting with `expertwifi.net` (`strncmp` len 14); the open code redirects the browser to `www.asusrouter.com`. Patching the closed string is not possible in place (4 bytes longer, neighbours in use) | `shared.h`: `DUT_DOMAIN_NAME` = `expertwifi.net` for `TUFAX3000_V2` (as BUSINESS). Same define feeds `httpd` (`ZVDOMAIN_NAMEVZ` in the dicts), `/etc/hosts`, dnsmasq, wanduck; `gencert.sh` already lists `expertwifi.net`. Web UI: `http://expertwifi.net` or the LAN IP |
-| 0016 | found on hardware (fixed, confirmed on g69420e1): client list opens but shows 0 clients. Prebuilt BR63 `networkmap` was built with `RTCONFIG_CAPTIVE_PORTAL`, so its shared-memory `CLIENT_DETAIL_INFO_TABLE` has `subunit[255]` (260644 bytes, `movw 0xfa24`); our `httpd` (no CAPTIVE_PORTAL) expected 260388 bytes and read `ip_mac_num` 255 bytes too early | `networkmap.h`: `subunit[]` also for `TUFAX3000_V2` |
-| 0017 | found on hardware (fixed, confirmed on g69420e1: VLAN tab, AiMesh menu, `amas_support=3`): no VLAN tab (page itself works). Closed `libwebapi` `RCisSupport("mtlancfg")` returns `is_amas_support() ? 2 : 0`; closed BR63 `sw-hw-auth/prebuild/hw_auth.o` `getAmasSupportMode()` only whitelists `BR63`/`EBR63`/`ExpertWiFi_EBR63` → `amas_support=0` (AiMesh off too) | `tools/patchstr.py hw_auth.o ExpertWiFi_EBR63 TUF-AX3000_V2` (string shared with the tunnel whitelist). Still contain `BR63` checks, not investigated: `rc/prebuild/{init-broadcom,obd,obd_eth}.o`, `cfg_mnt/prebuild/cfg_{server,client,newob}` |
 
 Reviewed, not a problem: busybox `switch_root`/`pivot_root`/`chroot`/`fuser`
 are missing (also missing in stock EBR63; rc only uses them with
@@ -256,6 +262,36 @@ Result: image `TUF-AX3000_V2_3.0.0.6_102_40000-g5361b12_nand_squashfs.pkgtb`,
 all checks pass. With 0011: `…-gb32cae9_nand_squashfs.pkgtb` (sha256
 `0e5457b7…469e`), all checks pass; `rc` contains "auto-commit disabled" and no
 longer the "reset bootstate" strings.
+
+### Patches 0011–0017: found on the router (2026-10-23)
+
+0011 prepares the test image for the dual-image procedure (§5). The rest were
+found by testing on the router (§5.3). Nearly all have the same cause: a
+**closed object compiled for the EBR63** makes an assumption the TUF build does
+not share. It may check the EBR63 model name, rely on an EBR63 build option
+(`BUSINESS`, `CAPTIVE_PORTAL`), or expect the ExpertWiFi web UI. The static
+checks (§4) cannot find these, because every symbol resolves and the program
+just behaves differently at run time. The fix is always to adjust the open side,
+or to patch the closed object in place with `tools/patchinsn.py` (one ARM
+instruction, old value verified) or `tools/patchstr.py` (one NUL-terminated
+string, must occur exactly once).
+
+| # | Problem | Fix |
+|---|---|---|
+| 0011 | `sync_boot_state()` would commit the test image as soon as its services start, removing the power-cycle fallback to stock | early return for `TUFAX3000_V2` (see §5.1) |
+| 0012 | web UI login → 404 on `/index.html?current_theme=white`. Prebuilt EBR63 `libwebapi/prebuild/priv_webapi.o` `get_ui_support_info()` adds `"BUSINESS": 1` unconditionally, so `state.js` redirects to the ExpertWiFi UI, which TUF does not ship (`httpd`'s own flag is correctly gated on `RTCONFIG_BUSINESS`) | `tools/patchinsn.py priv_webapi.o 25c8 e3a00001 e3a00000` (`mov r0,#1` → `#0` before the `BUSINESS` key) |
+| 0013 | VPN server/client pages broken, `top.cachedData` undefined in `httpApi.js`. 3006 `httpApi.js` keeps its cache on `top`, which only the BUSINESS wrapper defines; `Advanced_VPN*_Content.asp` iframes `VPN/vpn*.html` and does not load `httpApi.js` | `httpApi.js`: `if(!top.cachedData) top.cachedData = cachedData;` |
+| 0014 | Adaptive QoS / Bandwidth Monitor pages are empty 200 responses. `httpd` serves DPI pages only if `dump_dpi_support()`; prebuilt EBR63 `bwdpi_source/asus/prebuild/libbwdpi.so` has a per-model table with only `ExpertWiFi_EBR63` (stock TUF lib: `TUF-AX3000`, `TUF-AX3000_V2`, same 9-entry bitmap, all 1) | `tools/patchstr.py libbwdpi.so ExpertWiFi_EBR63 TUF-AX3000_V2`. Engine binaries (`tdts.ko`, `shn_ctrl`, `dcd`, `tcd`, `wred`, `tdts_rule_agent`) are byte-identical to stock; `model.enc` differs (8 KiB EBR63 vs 2 KiB stock), left as EBR63 |
+| 0015 | client list, system status, QoS data empty while logged in; every `appGet.cgi` returns the login redirect. Prebuilt BR63 `httpd/prebuild/web_hook.o` `referer_check()` (built with `RTCONFIG_BUSINESS`) accepts a Referer only equal to the LAN IP or starting with `expertwifi.net` (`strncmp` len 14); the open code redirects the browser to `www.asusrouter.com`. Patching the closed string is not possible in place (4 bytes longer, neighbours in use) | `shared.h`: `DUT_DOMAIN_NAME` = `expertwifi.net` for `TUFAX3000_V2` (as BUSINESS). Same define feeds `httpd` (`ZVDOMAIN_NAMEVZ` in the dicts), `/etc/hosts`, dnsmasq, wanduck; `gencert.sh` already lists `expertwifi.net`. Web UI: `http://expertwifi.net` or the LAN IP |
+| 0016 | client list opens but shows 0 clients. Prebuilt BR63 `networkmap` was built with `RTCONFIG_CAPTIVE_PORTAL`, so its shared-memory `CLIENT_DETAIL_INFO_TABLE` has `subunit[255]` (260644 bytes, `movw 0xfa24`); our `httpd` (no CAPTIVE_PORTAL) expected 260388 bytes and read `ip_mac_num` 255 bytes too early | `networkmap.h`: `subunit[]` also for `TUFAX3000_V2` |
+| 0017 | no VLAN tab (page itself works). Closed `libwebapi` `RCisSupport("mtlancfg")` returns `is_amas_support() ? 2 : 0`; closed BR63 `sw-hw-auth/prebuild/hw_auth.o` `getAmasSupportMode()` only whitelists `BR63`/`EBR63`/`ExpertWiFi_EBR63` → `amas_support=0` (AiMesh off too) | `tools/patchstr.py hw_auth.o ExpertWiFi_EBR63 TUF-AX3000_V2` (the string is shared with the ASUS remote-access tunnel whitelist, which now accepts TUF too) |
+
+Other closed objects that still contain `BR63` / `EBR63` strings, not examined
+yet: `rc/prebuild/init-broadcom.o` (unused for TUF since 0008),
+`rc/prebuild/obd.o`, `rc/prebuild/obd_eth.o` (AiMesh onboarding),
+`cfg_mnt/prebuild/cfg_server`, `cfg_client`, `cfg_newob` (AiMesh). They are the
+first suspects if AiMesh pairing fails. `ExpertWiFi_EBR63` appeared only in
+`hw_auth.o` and `libbwdpi.so`, and both are patched now.
 
 ### Design decision: hardware switching off when VLANs are used
 
@@ -293,59 +329,7 @@ Alternatives if the cost matters:
 
 Plan: ship as is for the first hardware test; measure; do (1) if needed, (2) later.
 
-## 5. Hardware test plan
-
-Flashing (dual image, no serial needed for early failures):
-
-- NAND holds two image slots. The loader TPL (not in the `.pkgtb`, never
-  rewritten; do not flash a `*_loader.pkgtb`) boots the committed slot, or the
-  other one once after a reboot with boot reason ACTIVATE; it then overwrites
-  the boot reason, so any later reset returns to the committed slot
-  (`bcmbca/board_tpl.c`). Stock ships `/bin/bcm_bootstate` to read/set this.
-- The web updater runs `bcm_flasher … 1` and commits the new slot at once, so
-  flash over SSH instead. Device on 2026-10-23: booted First, committed 1,
-  seq 3,2, state `BOOT_SET_PART1_IMAGE`.
-- Stock `rc` commits whatever booted (`sync_boot_state()`) once all services
-  started. Patch 0011 disables that in this build, so the new image stays
-  uncommitted until done by hand.
-- Procedure: `bcm_flasher /tmp/<image>.pkgtb` (writes Second, seq 4);
-  `bcm_bootstate 5` (commit First); `bcm_bootstate 8` (PART2_IMAGE_ONCE);
-  `bcm_bootstate` must show First commit 1, Second commit 0, Reboot Partition
-  Second; then `reboot` (not a power cycle). Failure: pull power → stock.
-  Success: `bcm_bootstate 7` to keep it.
-- Boot chain (ATF, U-Boot, DTBs) is byte-identical to stock, so ASUS rescue
-  mode (hold reset while powering on → ASUS Firmware Restoration / TFTP) is the
-  stock one and should be able to restore stock 388 firmware if the new
-  kernel/rootfs fails. Not yet proven.
-- Still connect a serial console (USB-UART on the board's serial header) for
-  the first boot and capture the log.
-- Unknown: whether the stock 388 web updater accepts an image carrying the
-  3006-era FIT property `asus = ASUSFLAG_IN_BOOT`. If rejected, use rescue mode.
-
-First hardware boot, 2026-10-23, image gb32cae9 (no serial): flashed from
-stock over SSH, one-time boot into Second worked (`reset_status` 0x20000000,
-Second uncommitted). Before the one-time reboot, `bcm_bootstate` still shows
-PART1: the kernel only reads back `reset_reason` after a software reset
-(after power-on, `reset_status` 0x80000000 and `reset_reason` reads
-ffffffff). Working: kernel (no oops), WAN DHCP + 2.5G port detection,
-LAN DHCP, both Wi-Fi bands, port link via sysfs, SSH login kept from 388
-nvram. Broken: web UI after login (→ 0012).
-
-Checks, in order:
-
-1. Basics: WAN gets an address (exercises `tuf_phy.c` via `wanduck`), LAN
-   DHCP, both Wi-Fi bands, web UI loads, port status page shows link/speed
-   (`GetPhyStatus`).
-2. Access-port VLAN: one LAN port in a new VLAN; client gets the VLAN's DHCP
-   and cannot reach the main LAN.
-3. Trunk port to a managed switch: tagged VLAN works, untagged main LAN works.
-4. Leak test: tagged frames sent into the trunk port never appear on other
-   ports (`tcpdump -e` on a client of another port).
-5. Throughput: `iperf3` between two wired LAN clients before and after
-   creating a VLAN (cost of hw-switching off); watch CPU with `top`.
-6. Cosmetic: LED-off mode (BR63 LED helpers still call `rtkswitch`).
-
-Results: §6.
+### Build notes
 
 How `tuf_hw.o` is made: `objcopy --keep-global-symbol=<fn>` localizes every
 other global of the 388 object (so nothing clashes with the BR63 objects), then
@@ -371,6 +355,144 @@ Notes: `cp: cannot stat .../bcm96756/main/src/router-sysdep/hnd_extra/prebuilt/*
 during "hnd_router platform work" is non-fatal; the real blobs live in
 `router-sysdep/hnd_extra/prebuilt/` and `bcmdrivers/*/impl*/`. `rdpa/bdmf/wfd`
 belong to Runner-based chips, not BCM6756.
+
+## 5. Flashing and hardware testing
+
+### 5.1 Dual-image boot
+
+- NAND holds two image slots, First and Second (pureUBI). The loader TPL is not
+  part of the `.pkgtb` and is never rewritten. Never flash a `*_loader.pkgtb`.
+- The TPL boots the **committed** slot. If the reset reason has
+  `BCM_BOOT_REASON_ACTIVATE` (0x1) after a software reset, it boots the other
+  slot once instead. It overwrites the reset reason on every boot, so any later
+  reset returns to the committed slot (`bcmbca/board_tpl.c`).
+- `/bin/bcm_bootstate` (stock and this build) reads and sets this state:
+  `5` / `7` commit First / Second, `6` / `8` boot First / Second once (writes
+  0x1 to `/proc/bootstate/reset_reason`). After a power-on reset
+  (`reset_status` 0x80000000) the kernel reads `reset_reason` back as ffffffff.
+  So after arming, `bcm_bootstate` can still show the old "Reboot Partition",
+  but the one-time boot works. Confirmed on the router in both directions.
+- `bcm_flasher <file>` (stock and this build) writes the **inactive** slot and
+  does not commit it. The web updater runs `bcm_flasher … 1`, which commits.
+- Stock `rc` commits whatever it booted (`sync_boot_state()`) once all services
+  have started. Patch 0011 disables that in this build, so the test image stays
+  uncommitted until you commit it by hand.
+
+### 5.2 Procedure
+
+Requirements: SSH enabled (LAN only), and **Auto Firmware Upgrade off**
+(Administration → Firmware Upgrade, nvram `webs_update_enable=0`). Even then,
+`watchdog` checks for updates around 2 AM, so flash and test in one session.
+Copying a file to the router: `cat f | ssh admin@192.168.50.1 'cat > /tmp/f'`
+(no scp/sftp).
+
+1. Be booted from the committed official slot X (`bcm_bootstate`: Booted X,
+   X commit flag 1).
+2. `bcm_flasher /tmp/fw.pkgtb` writes slot Y. Check: X commit 1, Y commit 0.
+3. Arm the one-time boot into Y (`8` for Second, `6` for First), then `reboot`.
+   Do not power-cycle, because the boot reason only survives a software reset.
+4. Check: Booted Y, Y commit 0, `nvram get extendno` = `40000-g<commit>`.
+5. To go back, `reboot` or power-cycle. To keep the test image, commit Y
+   (`5`/`7`); after that there is no automatic fallback.
+
+Never run `bcm_flasher` while booted from the uncommitted test image. The
+inactive slot is then the official one, and it would be overwritten.
+
+nvram (settings, SSH login) is shared by both slots and kept across the flash.
+The test image ran on nvram from 388; a factory reset was not needed.
+
+Rescue: the boot chain (ATF, U-Boot, DTBs) is byte-identical to stock (0009),
+so ASUS rescue mode (hold reset while powering on, ASUS Firmware Restoration /
+TFTP) should be the stock one. It has not been tried. A serial console
+(USB-UART on the board header) was not needed so far.
+
+### 5.3 Bring-up log (2026-10-23, no serial console)
+
+Starting state: official firmware in First (committed, seq 3), Second seq 2.
+
+| Image | Added | Result on the router |
+|---|---|---|
+| `gb32cae9` | 0011 | One-time boot into Second worked. Working: kernel (no oops), WAN DHCP + 2.5G port detection (`tuf_phy.c` via `wanduck`), LAN DHCP, both Wi-Fi bands, port link via sysfs, SSH login kept. Broken: web UI shows 404 after login → 0012 |
+| `gdeca987` | 0012 | UI loads. VPN pages broken (→ 0013), QoS / Bandwidth Monitor blank (→ 0014), SSID shown empty, client list and System Status empty |
+| `g0274168` | 0013, 0014 | VPN and QoS pages render. Client list, System Status and QoS data still empty: every `appGet.cgi` request returns the login redirect → 0015 |
+| `g16a7487` | 0015 | System Status and SSID work (the empty SSID was the same `appGet.cgi` failure, not nvram). In a normal browser window only after clearing site data, because cached JS and the `www.asusrouter.com` redirect come from older images. Client list opens with 0 clients → 0016. VLAN page reachable by URL but no menu tab → 0017 |
+| — | — | ASUS **Auto Firmware Upgrade** ran: wrote official 388_24049 into Second (the test slot) and committed it. Official firmware then in both slots, nothing lost. From here, official 388_24049 is the committed fallback in Second and test images go into First (`bcm_bootstate 6`) |
+| `g69420e1` | 0016, 0017 | Client list, VLAN tab and AiMesh menu work, `amas_support=3`. VLAN trunk test passes (§6) |
+
+`gdfd7466` (0016 only) was built but not flashed.
+
+Note on `amas_support`: rc clears it at boot. It is filled in on the first
+`is_amas_support()` call (e.g. when the web UI loads), so an empty value right
+after boot is normal.
+
+### 5.4 Open issues
+
+- AiMesh pairing not tested; closed BR63 `cfg_mnt` / `obd` objects unchecked (§4).
+- Checks from the list below that are still open, and the firewall follow-ups in §6.
+- Features removed, or expected to misbehave, compared with stock: §5.5.
+- LAN LED-off mode: the BR63 LED helpers still call `rtkswitch`.
+
+Checks, in order (results in §6):
+
+1. Basics: WAN gets an address (exercises `tuf_phy.c` via `wanduck`), LAN
+   DHCP, both Wi-Fi bands, web UI loads, port status page shows link/speed
+   (`GetPhyStatus`). **Done, works.**
+2. Access-port VLAN: one LAN port in a new VLAN; client gets the VLAN's DHCP
+   and cannot reach the main LAN.
+3. Trunk port to a managed switch: tagged VLAN works, untagged main LAN works.
+   **Done, works.**
+4. Leak test: tagged frames sent into the trunk port never appear on other
+   ports (`tcpdump -e` on a client of another port).
+5. Throughput: `iperf3` between two wired LAN clients before and after
+   creating a VLAN (cost of hw-switching off); watch CPU with `top`.
+6. Cosmetic: LED-off mode (BR63 LED helpers still call `rtkswitch`).
+
+### 5.5 Differences from stock 388_24049: what is missing or may not work
+
+**Removed to make the build work.** Their closed parts are not in the EBR63
+GPL, so the options are off in `target.mak.3004` (patches 0001, 0002, 0004,
+0006). The features are not in the image and their menu entries are gone:
+
+| Feature (stock TUF) | Option | Patch | Files stock has, image lacks |
+|---|---|---|---|
+| Router Boost (gaming packet duplication) | `ROUTERBOOST` | 0001 | kernel `deDupTx` |
+| Link aggregation (LACP / bonding of two LAN ports) | `LACP`, `BONDING` | 0002 | `ifenslave` |
+| UU game accelerator (NetEase) | `UUPLUGIN` | 0004 | — (downloaded at run time) |
+| Alexa, IFTTT, Google Assistant | `ALEXA`, `IFTTT`, `GOOGLE_ASST` | 0006 | `Advanced_Smart_Home_{Alexa,IFTTT}.asp` |
+| Instant Guard (ASUS one-tap VPN app) | `INSTANT_GUARD` | 0006 | — |
+| AiCloud (web access to USB disk, share links), WebDAV | `WEBDAV`, `APP="none"` | 0006 | `lighttpd` + `mod_*.so`, `cloud_*.asp`, `aicloud_qis.asp` |
+| Smart Sync (USB disk ↔ ASUS WebStorage / Dropbox / Google Drive / FTP / Samba) | `SMARTSYNCBASE` | 0006 | `asuswebstorage`, `dropbox_client`, `google_client`, `ftpclient`, `sambaclient`, `usbclient`, `webdav_client`, `inotify` |
+| Download Master / USB app install | `APP="none"` | 0006 | `app_*.sh`, `chk_app_state`, `run_app_script` |
+| Security change notification page | (0006) | 0006 | `Main_Security_Change_Notification.asp` |
+
+0006 also turned off `NOTIFICATION_CENTER`, but the built `.config` still
+has `RTCONFIG_NOTIFICATION_CENTER=y` (something else enables it). The
+notification center is therefore built in, but not tested.
+
+Other files stock has and the image does not, without a visible feature:
+`hw_accel_dump.sh` (debug), `check_spectrum.sh`, `switch_root` /
+`pivot_root` / `chroot` / `fuser` (unused, see §4), mobile QIS pages and EULA
+pages, `letsencrypt.pem` (unused). Full list:
+`comm -23` of `out/verify/stock.lst` and `new.lst`.
+
+**Present but likely to misbehave** (known cause, not yet seen):
+
+| Area | Why |
+|---|---|
+| AiMesh (pairing, backhaul, node config) | `cfg_server` / `cfg_client` / `cfg_newob` and `obd*.o` are closed EBR63 builds that still contain `BR63` checks (§4). Only the menu was verified |
+| LAN LED-off / LED control | the BR63 LED helpers (`setAllLed*`, `setNetLed`) in `broadcom.o` call `rtkswitch` (Realtek), which the TUF lacks. LAN LEDs may ignore the LED-off setting |
+| Wired LAN↔LAN speed with VLANs | once a port is set to Access or single-VID Trunk, `apg_switch_*` turns BCM hardware switching off until reboot (§4 design note). Throughput not measured |
+| Adaptive QoS / AiProtection / Traffic Analyzer | pages render (0014), but the DPI engine runs with the EBR63 `model.enc` and has not been checked to classify traffic |
+| ASUS Router app, remote access (`aaews`, `mastiff`) | closed EBR63 programs; the tunnel calls they import are stubs (0010). Untested |
+| Firmware update from the web UI / auto-upgrade | the online check compares against official TUF firmware (3.0.0.4.388), and the outcome from a 3.0.0.6 image is unknown. The web updater commits what it flashes. Keep auto-upgrade off (§5.2) |
+| `router.asus.com` / `www.asusrouter.com` | the router's name is now `expertwifi.net` (0015). Old bookmarks and the stock name do not resolve to the UI |
+| Closed EBR63 code in general | 0012–0017 were all found by clicking through the UI. More code paths that check the EBR63 model or `BUSINESS` / `CAPTIVE_PORTAL` options may remain in parts not yet used |
+
+**Built in but not tested yet:** IPv6, Dual WAN / USB modem, USB storage
+(Samba, FTP, media server, Time Machine), printer server, WireGuard / OpenVPN
+/ IPsec clients and servers (the VPN pages render), Game Mode / Open NAT,
+Parental Controls, AiProtection, Smart Connect / roaming, the access-port VLAN
+(§5.4).
 
 ## 6. Hardware findings
 
