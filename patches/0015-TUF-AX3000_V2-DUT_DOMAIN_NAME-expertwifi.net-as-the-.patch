@@ -1,0 +1,28 @@
+From 16a7487ba996c2a1c53867a149c82fc196f85f9f Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 18:35:05 +0000
+Subject: [PATCH] TUF-AX3000_V2: DUT_DOMAIN_NAME expertwifi.net, as the
+ prebuilt BR63 web_hook.o referer_check() accepts only that name or the LAN IP
+ (www.asusrouter.com referer -> every appGet.cgi answered with the login page:
+ empty client list, system status, QoS)
+
+---
+ release/src/router/shared/shared.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/release/src/router/shared/shared.h b/release/src/router/shared/shared.h
+index f0faf1f35..e746bae81 100755
+--- a/release/src/router/shared/shared.h
++++ b/release/src/router/shared/shared.h
+@@ -395,7 +395,7 @@ extern int guest_mark_calc(int guest_mark);
+ #elif defined(RTCONFIG_CONCURRENTREPEATER)
+ #define DUT_DOMAIN_NAME "www.asusrouter.com"
+ #define OLD_DUT_DOMAIN_NAME "repeater.asus.com"
+-#elif defined(RTCONFIG_BUSINESS)
++#elif defined(RTCONFIG_BUSINESS) || defined(TUFAX3000_V2)	/* closed BR63 referer_check only accepts expertwifi.net */
+ #define DUT_DOMAIN_NAME "expertwifi.net"
+ #define OLD_DUT_DOMAIN_NAME "www.asusrouter.com"
+ #else
+-- 
+2.43.0
+
