@@ -32,6 +32,12 @@ If you rely on any removed feature, stay on official firmware.
 **This is experimental firmware. Only try it with the dual-image procedure below,
 which keeps official firmware as an automatic fallback.**
 
+> **Disclaimer.** This is an unofficial personal project. It is not affiliated
+> with, endorsed by, or supported by ASUSTeK Computer Inc., Broadcom or Trend
+> Micro. Flashing unofficial firmware may void your warranty and can make your
+> router unusable. Everything here is provided as is, without warranty of any
+> kind (see [License](#license)); you use it entirely at your own risk.
+
 ## Layout
 
 | Path                                              | What                                                                                                                                            |
@@ -120,3 +126,24 @@ If the router does not come back at all: pull power and start it again (boots
 the committed official slot). Last resort is ASUS rescue mode (hold reset while
 powering on, ASUS Firmware Restoration / TFTP); the boot chain is byte-identical
 to stock, so it should be the stock one, but that has not been tried.
+
+## License
+
+The contents of this repository (scripts, tools, documentation and patches)
+are licensed under the [GNU General Public License v2.0](LICENSE), the license
+of the Asuswrt, Linux and U-Boot code the patches modify.
+
+Third-party material is not covered by that grant and stays under its
+owners' terms. That includes:
+- the ASUS GPL source tree the patches apply to;
+- the closed-source objects and libraries from ASUS, Broadcom and Trend Micro
+  that some patches change or add (prebuilt `.o` / `.so` files, the stock
+  ATF / U-Boot binaries).
+
+ASUS, TUF Gaming, AiMesh, ExpertWiFi and AiProtection are trademarks of ASUSTeK
+Computer Inc. Other names are trademarks of their owners. They are used only
+to describe compatibility.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
