@@ -1,0 +1,27 @@
+From b7ae98fb1727eff2a7e953924a4b3a3cc6fe6181 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 18:02:59 +0000
+Subject: [PATCH 13/14] www: httpApi.js creates top.cachedData when the top
+ page has none (no BUSINESS wrapper); fixes VPN server/client pages (iframed
+ VPN/vpn*.html)
+
+---
+ release/src/router/www/js/httpApi.js | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/release/src/router/www/js/httpApi.js b/release/src/router/www/js/httpApi.js
+index 1fccff6a7..6eddaeb4c 100644
+--- a/release/src/router/www/js/httpApi.js
++++ b/release/src/router/www/js/httpApi.js
+@@ -7,6 +7,8 @@ var cachedData = {
+ 	"get": {},
+ 	"clear": function(dataArray){$.each(dataArray, function(idx, val){delete top.cachedData.get[val];})}
+ }
++/* the top page may not load httpApi.js (no BUSINESS wrapper), e.g. the VPN pages iframe VPN/vpns.html */
++if(!top.cachedData) top.cachedData = cachedData;
+ 
+ var asyncData = {
+ 	"get": {},
+-- 
+2.43.0
+

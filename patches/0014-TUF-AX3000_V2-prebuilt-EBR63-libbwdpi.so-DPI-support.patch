@@ -1,0 +1,25 @@
+From 027416803b1fb5ea063e66fbeb384b3039cd556a Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 18:02:59 +0000
+Subject: [PATCH 14/14] TUF-AX3000_V2: prebuilt EBR63 libbwdpi.so DPI support
+ table lists only ExpertWiFi_EBR63 -> all DPI features (Adaptive QoS,
+ Bandwidth Monitor, AiProtection) off and their pages empty; rename entry to
+ TUF-AX3000_V2 (same bitmap as stock TUF); tools/patchstr.py libbwdpi.so
+ ExpertWiFi_EBR63 TUF-AX3000_V2
+
+---
+ .../bwdpi_source/asus/prebuild/libbwdpi.so    | Bin 153028 -> 153028 bytes
+ 1 file changed, 0 insertions(+), 0 deletions(-)
+
+diff --git a/release/src/router/bwdpi_source/asus/prebuild/libbwdpi.so b/release/src/router/bwdpi_source/asus/prebuild/libbwdpi.so
+index bdb5cdf58c7e3f0a6740cc8faea30df54e1065b1..ecdc64e3f565e37b8c3b16d4fa9289d6b684c811 100755
+GIT binary patch
+delta 34
+qcmX@In)AqN&W0_FHAe+PLfv#7Ba96U4C2F#7#J9~_Z(%km;eCa>kFp<
+
+delta 34
+qcmX@In)AqN&W0_FHAe+pD+*GJO2RYUGUHvHg3OG!_Z(%km;eC&$_>x}
+
+-- 
+2.43.0
+
