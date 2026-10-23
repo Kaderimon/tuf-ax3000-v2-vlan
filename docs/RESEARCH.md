@@ -345,6 +345,8 @@ Checks, in order:
    creating a VLAN (cost of hw-switching off); watch CPU with `top`.
 6. Cosmetic: LED-off mode (BR63 LED helpers still call `rtkswitch`).
 
+Results: §6.
+
 How `tuf_hw.o` is made: `objcopy --keep-global-symbol=<fn>` localizes every
 other global of the 388 object (so nothing clashes with the BR63 objects), then
 `ld -r --gc-sections -u <fn>` drops code the function can't reach. Remaining
@@ -370,7 +372,83 @@ during "hnd_router platform work" is non-fatal; the real blobs live in
 `router-sysdep/hnd_extra/prebuilt/` and `bcmdrivers/*/impl*/`. `rdpa/bdmf/wfd`
 belong to Runner-based chips, not BCM6756.
 
-## 6. Sources
+## 6. Hardware findings
+
+### VLAN test results (2026-10-23, image g69420e1)
+
+Setup: two SDN networks with VLAN IDs and DHCP, one TUF LAN port to an
+802.1Q switch (TP-Link Easy Smart), one client per VLAN behind the switch
+(access port, PVID = VLAN), main LAN untagged on the trunk. TUF ports left at
+the UI default ("All"). Numbers refer to the checks in §5.
+
+| Check | Result |
+|---|---|
+| 2 Access-port VLAN | not tested (no TUF port set to "Access") |
+| 3 Trunk to managed switch | works: VLAN client is learnt in its `brN` via `ethX.VID` of the trunk port only, gets the VLAN's DHCP lease, has internet; main LAN on the same trunk untagged keeps working |
+| 4 Leak | no traffic on the VLAN sub-interfaces of other ports (`ethY.VID` rx counters stay 0). Not done: `tcpdump -e` on a client of another port (no `tcpdump` on the router) |
+| 4 hw-switching | still **Enabled** (`ethswctl -c hw-switching`) after creating VLANs with all ports on "All": `apg_switch_*` is not called in that mode, unlike the design note in §4 assumes. Harmless while every port carries every VLAN; must be rechecked once a port is set to "Access"/single-VID "Trunk" |
+| 5 Throughput | not measured |
+| Isolation | VLAN → main LAN, VLAN → other VLAN: blocked. VLAN → WAN: allowed. Main LAN → VLAN: **also blocked** (see below) |
+| IPv6 | not tested (`ipv6_service=disabled`) |
+
+### Firewall behaviour of the SDN code
+
+| Finding | Detail |
+|---|---|
+| Port modes | Network → VLAN offers per LAN port only "All" (default: main LAN untagged + every VLAN tagged), "Access" (one VLAN untagged) and "Trunk" (main LAN untagged + one VID or all). There is no "main LAN only" mode. In "All" every LAN port and both radios (`eth5`/`eth6` = `wl0`/`wl1`) get `ethX.VID` in every VLAN bridge, so VLAN broadcasts reach every port tagged |
+| Inter-bridge traffic | `handle_SDN_internal_access()` (`rc/firewall_sdn.c`) ends chain `SDN_IA` (jumped to from `SDN_FF`, before `FORWARD -i br0 -j ACCEPT`) with `-i br+ -o br+ -j DROP`, so main LAN → VLAN is dropped too. The only exception, `sdn_access_rl` (`<idx1>idx2`), always adds both directions. One-way access (main LAN may connect in, VLAN only answers) is not expressible in the UI |
+| Router services from a VLAN | `update_SDN_iptables()` writes to `SDN_FI`: DHCP/DNS accept; if `ahs_sw` ("access host service") is off, drop `-d lan_ipaddr`; then `-m state --state NEW -j ACCEPT`. The router's own address **on the VLAN bridge** is not dropped, so every service bound to `0.0.0.0` is reachable from the VLAN: `dropbear` (22, incl. password login if enabled), `cfg_server` (7788), `wanduck` (18017/18018), `miniupnpd` (HTTP port), `infosvr` (udp 9999), SSDP 1900, avahi 5353, `eapd` (udp 59000). `httpd` binds `lan_ipaddr` only and `envrams` (5152) is dropped in `INPUT`, so those are safe |
+| Manual rules | rules added with `iptables` at runtime are lost when rc rebuilds the firewall (observed within minutes; trigger not identified). This build calls no user script, so there is no supported way to keep them |
+
+### Proposed follow-ups (not yet patched)
+
+**(a) Generic fix: VLAN → router.** In `update_SDN_iptables()`, when `ahs_sw`
+is off, also drop traffic to the bridge's own address
+(`pmtl->nw_t.addr`) after the DHCP/DNS accepts, and accept tcp/53 there
+(large DNS replies). Result: with "access host service" off, a VLAN client
+can reach the router only for DHCP, DNS and ICMP (`INPUT_ICMP` runs before
+`SDN_FI`). Matches what the UI option suggests; nothing site-specific.
+
+**(b) User hook: `firewall-start`.** `shared/scripts.c` already has
+`run_custom_script()` (runs `/jffs/scripts/<name>` if executable, unless
+`jffs2_scripts=0`) and it is linked into rc, but nothing calls it except
+`run_postconf("torrc")`. Proposal:
+
+- call `run_custom_script("firewall-start", 0, wan_if, NULL)` at the end of
+  `start_firewall()` and after each `handle_SDN_internal_access()` call in
+  `rc/sdn.c`, so the script also runs when only the SDN rules are rebuilt;
+- add default `jffs2_scripts=0` to `defaults.c` (off unless the user runs
+  `nvram set jffs2_scripts=1; nvram commit`);
+- semantics as in Asuswrt-Merlin, so existing documentation applies.
+
+Example `/jffs/scripts/firewall-start` (site rules stay on the router, not in
+the image; `brA` = exposed VLAN, `brB` = internal VLAN, interface names from
+`brctl show`):
+
+```sh
+#!/bin/sh
+for b in brA brB; do    # VLAN -> router: DHCP and DNS only
+  iptables -I SDN_FI 1 -i $b -j DROP
+  iptables -I SDN_FI 1 -i $b -p tcp --dport 53 -j ACCEPT
+  iptables -I SDN_FI 1 -i $b -p udp -m multiport --dports 53,67 -j ACCEPT
+done
+# main LAN -> VLAN, one way (replies pass FORWARD's RELATED,ESTABLISHED rule)
+iptables -I SDN_IA 1 -i br0 -o brA -p tcp --dport 22 -j ACCEPT
+iptables -I SDN_IA 2 -i br0 -o brA -p icmp -j ACCEPT
+iptables -I SDN_IA 3 -i br0 -o brB -j ACCEPT
+```
+
+The script must tolerate running more than once per boot (whether rc flushes
+`SDN_FI`/`SDN_IA` before every call is not verified; if not, delete before
+insert, `iptables -D … 2>/dev/null`). With (a) in place the `SDN_FI` part is
+not needed.
+
+Still open from the test: Access-port check (2) and hw-switching state after
+it, `tcpdump -e` leak test on a client of another port, VLAN hopping from a
+switch access port (send VID-tagged frames for other VLANs from the client),
+throughput (5), LED-off mode (6).
+
+## 7. Sources
 
 - ASUS TUF-AX3000 V2 firmware: https://www.asus.com/supportonly/tuf-ax3000%20v2/helpdesk_bios/
 - ASUS EBR63 firmware/GPL: https://www.asus.com/supportonly/ebr63/helpdesk_bios/
