@@ -73,7 +73,10 @@ Ignore the `*_loader.pkgtb` next to it: it also rewrites the boot loader and mus
 never be flashed.
 
 Optional static check against stock (no router needed):
-`tools/verify.sh <new.pkgtb> <stock 388 .pkgtb>`, see RESEARCH §4.
+`tools/verify.sh <new.pkgtb> <stock 388 .pkgtb>`, see RESEARCH §4. The stock image
+is `FW_TUF-AX3000_V2_300438824049.zip` (3.0.0.4.388_24049) from the ASUS support
+page for the TUF Gaming AX3000 V2 (Driver & Utility → BIOS & Firmware); it contains
+`TUF-AX3000_V2_3.0.0.4_388_24049-gac80ffa_nand_squashfs.pkgtb`.
 
 ## Trying it on a router
 

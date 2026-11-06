@@ -5,3 +5,4 @@ logs/
 *.trx
 tufhw/out/
 out/
+.claude/
