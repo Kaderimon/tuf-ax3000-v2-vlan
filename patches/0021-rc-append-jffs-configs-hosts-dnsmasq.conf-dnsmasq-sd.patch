@@ -1,0 +1,62 @@
+From 589117093dfed05b57cfb57c89b726761b478ca7 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 12:37:31 +0000
+Subject: [PATCH] rc: append
+ /jffs/configs/{hosts,dnsmasq.conf,dnsmasq-sdn.conf}.add and run their
+ .postconf (Asuswrt-Merlin semantics)
+
+/etc/hosts and every dnsmasq config are rewritten on each dnsmasq start,
+so DNS names added at runtime do not last, and the LAN DHCP page rejects
+reservations outside the main subnet. hosts.add reaches every subnet:
+the main and all SDN dnsmasq instances read /etc/hosts. dnsmasq.conf.add
+goes to the main instance, dnsmasq-sdn.conf.add to each
+/etc/dnsmasq-<idx>.conf. Same jffs2_scripts=1 gate as the
+firewall-start hook.
+---
+ release/src/router/rc/sdn.c      | 2 ++
+ release/src/router/rc/services.c | 5 +++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/release/src/router/rc/sdn.c b/release/src/router/rc/sdn.c
+index 5fc1aa09a..8cda17760 100644
+--- a/release/src/router/rc/sdn.c
++++ b/release/src/router/rc/sdn.c
+@@ -804,7 +804,9 @@ static int _gen_sdn_dnsmasq_conf(const MTLAN_T *pmtl, char *config_file, const s
+ 
+ 		// TODO: Set VPN server
+ 
++		append_custom_config("dnsmasq-sdn.conf", fp);
+ 		fclose(fp);
++		run_postconf("dnsmasq-sdn", config_file);
+ 		return 0;
+ 	}
+ 	return -1;
+diff --git a/release/src/router/rc/services.c b/release/src/router/rc/services.c
+index 6240761b6..86162c4cb 100755
+--- a/release/src/router/rc/services.c
++++ b/release/src/router/rc/services.c
+@@ -1681,7 +1681,9 @@ void start_dnsmasq(void)
+ 			}
+ 		}
+ #endif
++		append_custom_config("hosts", fp);
+ 		fclose(fp);
++		run_postconf("hosts", "/etc/hosts");
+ 	} else
+ 		perror("/etc/hosts");
+ 
+@@ -2303,8 +2305,11 @@ void start_dnsmasq(void)
+ 
+ 	fprintf(fp, "edns-packet-max=1232\n");
+ 
++	append_custom_config("dnsmasq.conf", fp);
++
+ 	/* close fp move to the last */
+ 	fclose(fp);
++	run_postconf("dnsmasq", "/etc/dnsmasq.conf");
+ 
+ 	/* Create resolv.conf with empty nameserver list */
+ 	f_write(dmresolv, NULL, 0, FW_APPEND, 0666);
+-- 
+2.43.0
+

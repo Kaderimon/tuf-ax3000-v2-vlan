@@ -47,7 +47,7 @@ which keeps official firmware as an automatic fallback.**
 | `docker/`, `build.sh`                             | Reproducible build environment (Ubuntu 20.04)                                                                                                   |
 | [`tools/`](tools/)                                | Image analysis (`fitls.py`, `fitget.py`, `pkgsplit.py`, …), `verify.sh` static image check, binary patch helpers `patchinsn.py` / `patchstr.py` |
 | [`tufhw/`](tufhw/)                                | Extracts TUF board functions from the TUF 388 GPL blobs (result is in patch 0005)                                                               |
-| [`examples/`](examples/)                          | `/jffs/scripts/firewall-start` example (patch 0019 hook, needs 0020): one-way main LAN → VLAN access |
+| [`examples/`](examples/)                          | `/jffs/scripts/firewall-start` example (patch 0019 hook, needs 0020): one-way main LAN → VLAN access; `/jffs/configs/hosts.add` example (patch 0021): DNS names for every subnet |
 | [`usb-approach/`](usb-approach/)                  | Alternative without custom firmware: stock firmware + USB startup hook + `vlan.sh` (untested)                                                   |
 | `build/`, `downloads/`, `out/`, `logs/` (ignored) | GPL tree, ASUS zips, built images, build logs                                                                                                   |
 

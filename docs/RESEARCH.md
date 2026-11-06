@@ -291,6 +291,7 @@ string, must occur exactly once).
 | 0018 | VLAN clients reach every router service bound to `0.0.0.0` on the VLAN bridge address (sshd, `cfg_server`, `wanduck`, `infosvr`, …, §6). `update_SDN_iptables()` with `ahs_sw` off only drops `-d lan_ipaddr` | with `ahs_sw` off (the web UI always writes 0), `SDN_FI` accepts tcp/53 after the udp DHCP/DNS rule, then drops everything else from the VLAN bridge. ICMP (`INPUT_ICMP`) and RELATED,ESTABLISHED still pass before `SDN_FI`. IPv4 only; the IPv6 rules are unchanged |
 | 0019 | runtime `iptables` rules are lost on every firewall / SDN rebuild and no user script is called | `run_custom_script("firewall-start", 30, …)` at the end of `start_firewall()` (`$1` = WAN interface) and after each `SDN_IA` rebuild in `handle_SDN_internal_access()` (`$1` = `sdn`), synchronous with a 30 s timeout; runs only with `jffs2_scripts=1` (Merlin's "not `0`" check fails open when the variable is missing, which happened on the test image); default `0`; `scripts.o` / its declarations built for `MULTILAN_CFG` as well as `TOR` (they were TOR-only). Example: [`examples/firewall-start`](../examples/firewall-start) |
 | 0020 | `jffs2_scripts` disappears about 3 s after any `nvram set` (also `0`), so 0019 never runs the script. Closed `asd` (rule set `/jffs/asd/chknvram*`) deletes it while nvram `3rd-party` is empty, which stock `init.c` writes at every boot | `init.c` writes `3rd-party=asusvlan` instead of `""` (Merlin writes `merlin` in the same place). Tested live: `asusvlan`, `xyz`, `merlin` keep the variable, empty does not. Only this `asd` rule was observed; what the other rules (`blockfile`, `blockdnsip`, `monitorproc`) do with a non-empty value is unknown |
+| 0021 | no persistent way to add DNS names: `/etc/hosts` and every `dnsmasq*.conf` are rewritten on each dnsmasq start, and the LAN DHCP page rejects reservations outside the main subnet (VLAN reservations only reach that VLAN's dnsmasq) | Merlin-style custom configs in `start_dnsmasq()` / `_gen_sdn_dnsmasq_conf()`: `/jffs/configs/hosts.add` → `/etc/hosts` (read by the main and all SDN dnsmasq instances, so names resolve from every subnet), `dnsmasq.conf.add` → `/etc/dnsmasq.conf`, `dnsmasq-sdn.conf.add` → each `/etc/dnsmasq-<idx>.conf`; then `hosts.postconf` / `dnsmasq.postconf` / `dnsmasq-sdn.postconf` with the file path as `$1`. Same `jffs2_scripts=1` gate as 0019 (needs 0020). Example: [`examples/hosts.add`](../examples/hosts.add) |
 
 Other closed objects that still contain `BR63` / `EBR63` strings, not examined
 yet: `rc/prebuild/init-broadcom.o` (unused for TUF since 0008),
@@ -437,6 +438,7 @@ after boot is normal.
 - Checks from the list below that are still open.
 - Patch 0020 at boot (image `g5891170`): `3rd-party` set without manual help,
   `firewall-start` run by rc at boot. Only the mechanism is tested (§6).
+- Patch 0021 (`/jffs/configs/*.add`) built, not flashed (§6).
 - Features removed, or expected to misbehave, compared with stock: §5.5.
 - LAN LED-off mode: the BR63 LED helpers still call `rtkswitch`.
 
@@ -583,6 +585,40 @@ Still open from the test: Access-port check (2) and hw-switching state after
 it, `tcpdump -e` leak test on a client of another port, VLAN hopping from a
 switch access port (send VID-tagged frames for other VLANs from the client),
 throughput (5), LED-off mode (6).
+
+### Local DNS names (patch 0021; built, not yet flashed)
+
+Wanted: one name (e.g. `nas.lan`) for a host on a VLAN that resolves from every
+subnet. Stock has no way to keep it:
+
+- LAN → DHCP Server → Manually Assigned IP accepts only addresses in the main
+  subnet (`validate_dhcp_range()` in `Advanced_DHCP_Content.asp`: "… is not a
+  valid address" for any address in a VLAN subnet). The name is written to `/etc/hosts` as
+  `IP name.<lan_domain>`; with `lan_domain` empty (default) that is `name.`.
+- An SDN network's own reservation list (`dhcpres<N>_rl`,
+  `_write_dhcp_reservation()` in `rc/sdn.c`) gives the name only to that
+  VLAN's dnsmasq; the main LAN's dnsmasq does not know it.
+- `/etc/hosts` and every `/etc/dnsmasq*.conf` are rewritten on each dnsmasq
+  start, so editing them (or doing it from `firewall-start`) does not last.
+- `dnsmq_user_domain` / `dnsmq_user_ip` (one `address=` line) needs
+  `RTCONFIG_DNSMQ_USER`.
+
+0021 calls the Merlin helpers `append_custom_config()` / `run_postconf()`
+(`shared/scripts.c`, built since 0019) while the files are written:
+
+| File                                      | Appended to                    | Seen by                                     | Then runs (`$1` = file)           |
+| ----------------------------------------- | ------------------------------ | ------------------------------------------- | --------------------------------- |
+| `/jffs/configs/hosts.add`                 | `/etc/hosts`                   | main and every SDN dnsmasq (none sets `no-hosts`) | `/jffs/scripts/hosts.postconf`    |
+| `/jffs/configs/dnsmasq.conf.add`          | `/etc/dnsmasq.conf`            | main LAN dnsmasq                            | `/jffs/scripts/dnsmasq.postconf`  |
+| `/jffs/configs/dnsmasq-sdn.conf.add`      | each `/etc/dnsmasq-<idx>.conf` | every SDN dnsmasq                           | `/jffs/scripts/dnsmasq-sdn.postconf` |
+
+Same gate as 0019: only with `jffs2_scripts=1` (so it needs 0020), otherwise
+syslog says "Found …, but custom configs are disabled!". With
+`lan_domain=lan` (LAN → DHCP Server → Domain Name) dnsmasq adds `domain=lan`
+and `expand-hosts`, so a `hosts.add` line `10.0.20.10 nas` answers both
+`nas` and `nas.lan`. Example: [`examples/hosts.add`](../examples/hosts.add).
+Name resolution does not open the firewall: main LAN → VLAN still needs
+`firewall-start`.
 
 ## 7. Sources
 

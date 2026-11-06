@@ -1,0 +1,12 @@
+# /jffs/configs/hosts.add  (patch 0021, needs nvram jffs2_scripts=1 + patch 0020)
+#
+# Appended to /etc/hosts every time dnsmasq starts. Every dnsmasq instance
+# (main LAN and each SDN/VLAN) reads /etc/hosts, so these names resolve from
+# all subnets. With a LAN domain set (LAN > DHCP Server > Domain Name, e.g.
+# "lan"), expand-hosts makes "nas" also answer as "nas.lan".
+#
+# Format: IP  name [more names...]
+# Apply without reboot:  service restart_dnsmasq
+
+10.0.20.10  nas
+10.0.30.5   printer
