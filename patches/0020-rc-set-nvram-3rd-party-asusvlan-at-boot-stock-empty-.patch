@@ -1,0 +1,34 @@
+From da2f3ce6e16a458c646f1bfc911e000478028d7c Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 23:19:45 +0000
+Subject: [PATCH] rc: set nvram 3rd-party=asusvlan at boot (stock: empty) so
+ asd chknvram stops deleting jffs2_scripts
+
+With 3rd-party empty, asd removes jffs2_scripts about 3 s after it is
+set (any value, also 0), so /jffs/scripts/firewall-start never runs.
+Tested live: "asusvlan", "xyz" and "merlin" all keep it; empty does not.
+Asuswrt-Merlin writes "merlin" in the same place. Only the nvram check
+was observed; what other asd rules do with a non-empty value is unknown.
+---
+ release/src/router/rc/init.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/release/src/router/rc/init.c b/release/src/router/rc/init.c
+index 7cb88d33c..8bdabcdc8 100755
+--- a/release/src/router/rc/init.c
++++ b/release/src/router/rc/init.c
+@@ -23912,7 +23912,10 @@ def_boot_reinit:
+ #endif
+ 
+ #ifdef RTCONFIG_ASD
+-	nvram_set("3rd-party", "");
++	/* asd's chknvram rule deletes jffs2_scripts within seconds while
++	 * 3rd-party is empty, which disables /jffs/scripts (patch 0019). Any
++	 * non-empty value stops that; Asuswrt-Merlin writes "merlin". */
++	nvram_set("3rd-party", "asusvlan");
+ #endif
+ 
+ #if defined(RTCONFIG_BCMBSD_V2)
+-- 
+2.43.0
+

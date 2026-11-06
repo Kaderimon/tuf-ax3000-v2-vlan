@@ -290,6 +290,7 @@ string, must occur exactly once).
 | 0017 | no VLAN tab (page itself works). Closed `libwebapi` `RCisSupport("mtlancfg")` returns `is_amas_support() ? 2 : 0`; closed BR63 `sw-hw-auth/prebuild/hw_auth.o` `getAmasSupportMode()` only whitelists `BR63`/`EBR63`/`ExpertWiFi_EBR63` → `amas_support=0` (AiMesh off too)                                                                                                                                                                                   | `tools/patchstr.py hw_auth.o ExpertWiFi_EBR63 TUF-AX3000_V2` (the string is shared with the ASUS remote-access tunnel whitelist, which now accepts TUF too)                                                                                                               |
 | 0018 | VLAN clients reach every router service bound to `0.0.0.0` on the VLAN bridge address (sshd, `cfg_server`, `wanduck`, `infosvr`, …, §6). `update_SDN_iptables()` with `ahs_sw` off only drops `-d lan_ipaddr` | with `ahs_sw` off (the web UI always writes 0), `SDN_FI` accepts tcp/53 after the udp DHCP/DNS rule, then drops everything else from the VLAN bridge. ICMP (`INPUT_ICMP`) and RELATED,ESTABLISHED still pass before `SDN_FI`. IPv4 only; the IPv6 rules are unchanged |
 | 0019 | runtime `iptables` rules are lost on every firewall / SDN rebuild and no user script is called | `run_custom_script("firewall-start", 30, …)` at the end of `start_firewall()` (`$1` = WAN interface) and after each `SDN_IA` rebuild in `handle_SDN_internal_access()` (`$1` = `sdn`), synchronous with a 30 s timeout; runs only with `jffs2_scripts=1` (Merlin's "not `0`" check fails open when the variable is missing, which happened on the test image); default `0`; `scripts.o` / its declarations built for `MULTILAN_CFG` as well as `TOR` (they were TOR-only). Example: [`examples/firewall-start`](../examples/firewall-start) |
+| 0020 | `jffs2_scripts` disappears about 3 s after any `nvram set` (also `0`), so 0019 never runs the script. Closed `asd` (rule set `/jffs/asd/chknvram*`) deletes it while nvram `3rd-party` is empty, which stock `init.c` writes at every boot | `init.c` writes `3rd-party=asusvlan` instead of `""` (Merlin writes `merlin` in the same place). Tested live: `asusvlan`, `xyz`, `merlin` keep the variable, empty does not. Only this `asd` rule was observed; what the other rules (`blockfile`, `blockdnsip`, `monitorproc`) do with a non-empty value is unknown |
 
 Other closed objects that still contain `BR63` / `EBR63` strings, not examined
 yet: `rc/prebuild/init-broadcom.o` (unused for TUF since 0008),
@@ -434,6 +435,8 @@ after boot is normal.
 
 - AiMesh pairing not tested; closed BR63 `cfg_mnt` / `obd` objects unchecked (§4).
 - Checks from the list below that are still open.
+- Patch 0020 at boot (image `g5891170`): `3rd-party` set without manual help,
+  `firewall-start` run by rc at boot. Only the mechanism is tested (§6).
 - Features removed, or expected to misbehave, compared with stock: §5.5.
 - LAN LED-off mode: the BR63 LED helpers still call `rtkswitch`.
 
@@ -574,6 +577,7 @@ read on the router before and after (they went from 0 to 12, 7 and 6).
 | VLAN B → main LAN PC (tcp 22), VLAN B → VLAN A host (tcp 22)               | dropped (`SDN_IA`); the same port on that host is open from the main LAN                |
 | internet (`curl https://example.com`)                                      | works (200)                                                                             |
 | main LAN → VLAN A / B (0019 `firewall-start`, `USER_IA`)                   | works: ping a VLAN A host, ssh to the VLAN B client; `SDN_IA` jumps to `USER_IA` first  |
+| `jffs2_scripts` with `3rd-party=asusvlan` (0020 mechanism)                 | kept for 1 day 18 h; the boot-time `init.c` change itself is not tested yet              |
 
 Still open from the test: Access-port check (2) and hw-switching state after
 it, `tcpdump -e` leak test on a client of another port, VLAN hopping from a
