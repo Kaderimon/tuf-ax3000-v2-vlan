@@ -289,6 +289,7 @@ string, must occur exactly once).
 | 0016 | client list opens but shows 0 clients. Prebuilt BR63 `networkmap` was built with `RTCONFIG_CAPTIVE_PORTAL`, so its shared-memory `CLIENT_DETAIL_INFO_TABLE` has `subunit[255]` (260644 bytes, `movw 0xfa24`); our `httpd` (no CAPTIVE_PORTAL) expected 260388 bytes and read `ip_mac_num` 255 bytes too early                                                                                                                                                 | `networkmap.h`: `subunit[]` also for `TUFAX3000_V2`                                                                                                                                                                                                                       |
 | 0017 | no VLAN tab (page itself works). Closed `libwebapi` `RCisSupport("mtlancfg")` returns `is_amas_support() ? 2 : 0`; closed BR63 `sw-hw-auth/prebuild/hw_auth.o` `getAmasSupportMode()` only whitelists `BR63`/`EBR63`/`ExpertWiFi_EBR63` → `amas_support=0` (AiMesh off too)                                                                                                                                                                                   | `tools/patchstr.py hw_auth.o ExpertWiFi_EBR63 TUF-AX3000_V2` (the string is shared with the ASUS remote-access tunnel whitelist, which now accepts TUF too)                                                                                                               |
 | 0018 | VLAN clients reach every router service bound to `0.0.0.0` on the VLAN bridge address (sshd, `cfg_server`, `wanduck`, `infosvr`, …, §6). `update_SDN_iptables()` with `ahs_sw` off only drops `-d lan_ipaddr` | with `ahs_sw` off (the web UI always writes 0), `SDN_FI` accepts tcp/53 after the udp DHCP/DNS rule, then drops everything else from the VLAN bridge. ICMP (`INPUT_ICMP`) and RELATED,ESTABLISHED still pass before `SDN_FI`. IPv4 only; the IPv6 rules are unchanged |
+| 0019 | runtime `iptables` rules are lost on every firewall / SDN rebuild and no user script is called | `run_custom_script("firewall-start", 30, …)` at the end of `start_firewall()` (`$1` = WAN interface) and after each `SDN_IA` rebuild in `handle_SDN_internal_access()` (`$1` = `sdn`), synchronous with a 30 s timeout; runs only with `jffs2_scripts=1` (Merlin's "not `0`" check fails open when the variable is missing, which happened on the test image); default `0`; `scripts.o` / its declarations built for `MULTILAN_CFG` as well as `TOR` (they were TOR-only). Example: [`examples/firewall-start`](../examples/firewall-start) |
 
 Other closed objects that still contain `BR63` / `EBR63` strings, not examined
 yet: `rc/prebuild/init-broadcom.o` (unused for TUF since 0008),
@@ -537,6 +538,23 @@ that field to 1 in `sdn_rl` by hand. IPv6 (`update_SDN_iptables()` v6 part)
 still only drops the bridge's global v6 address; untouched, since a blanket
 drop would also block RS/NS if ICMPv6 is not accepted earlier.
 
+**(b) `firewall-start` hook (0019).** Merlin semantics: `/jffs/scripts/firewall-start`
+runs if executable and `jffs2_scripts` is `1` (default `0`; unset also means off; enable with
+`nvram set jffs2_scripts=1; nvram commit`).
+Needs 0020: without it, ASUS `asd` deletes `jffs2_scripts` within seconds
+(test without reflashing: `nvram set 3rd-party=asusvlan` first; reset to empty at boot). Called at the end of
+`start_firewall()` with the WAN interface, and after every `SDN_IA` rebuild
+with `sdn`. `start_firewall()` itself rebuilds `SDN_IA`, so one firewall
+restart runs the script twice. It must be idempotent.
+[`examples/firewall-start`](../examples/firewall-start) keeps its rules in its
+own chain `USER_IA` (flushed and refilled each run) and makes sure `SDN_IA`
+jumps to it first. It opens main LAN → VLAN one way. Replies pass FORWARD's
+RELATED,ESTABLISHED rule; the VLAN still cannot open connections to `br0`.
+
+Correction: `scripts.o` was only in libshared with `RTCONFIG_TOR`, so
+`run_custom_script()` was not available to rc as stated earlier; 0019 builds it
+for `MULTILAN_CFG` too.
+
 ### Firewall test results (2026-11-06, image g7fab29f)
 
 Image `g7fab29f` (patches up to 0019) running for 1 day 18 h, two SDN
@@ -555,6 +573,7 @@ read on the router before and after (they went from 0 to 12, 7 and 6).
 | router's main LAN address (`lan_ipaddr`), tcp 22, 53, 80 and ping          | dropped                                                                                 |
 | VLAN B → main LAN PC (tcp 22), VLAN B → VLAN A host (tcp 22)               | dropped (`SDN_IA`); the same port on that host is open from the main LAN                |
 | internet (`curl https://example.com`)                                      | works (200)                                                                             |
+| main LAN → VLAN A / B (0019 `firewall-start`, `USER_IA`)                   | works: ping a VLAN A host, ssh to the VLAN B client; `SDN_IA` jumps to `USER_IA` first  |
 
 Still open from the test: Access-port check (2) and hw-switching state after
 it, `tcpdump -e` leak test on a client of another port, VLAN hopping from a

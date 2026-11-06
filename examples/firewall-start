@@ -1,0 +1,41 @@
+#!/bin/sh
+# /jffs/scripts/firewall-start for the TUF-AX3000 V2 test image (patch 0019).
+# rc runs it after every firewall rebuild ($1 = WAN interface) and after
+# every SDN_IA rebuild ($1 = "sdn"), so it must be safe to run repeatedly.
+#
+# Install on the router:
+#   mkdir -p /jffs/scripts
+#   cat firewall-start | ssh admin@192.168.1.1 'cat > /jffs/scripts/firewall-start'
+#   chmod +x /jffs/scripts/firewall-start
+#   nvram set jffs2_scripts=1; nvram commit
+#   (needs patch 0020; without it ASUS asd deletes jffs2_scripts within seconds)
+#   service restart_firewall
+#
+# VLAN -> router lockdown is done by patch 0018 (applies while the network's
+# access_host_service field in sdn_rl is 0, which the web UI always writes);
+# this script only opens main LAN -> VLAN, one way. Replies come back through FORWARD's
+# RELATED,ESTABLISHED rule; the VLAN still cannot open connections to br0.
+#
+# Bridge names: `brctl show` on the router (br0 = main LAN); replace brA/brB.
+
+CHAIN=USER_IA
+
+# "<bridge> <iptables match>" lines: what br0 may open into that bridge.
+# Empty match = everything.
+RULES='
+brA -p tcp -m multiport --dports 22,80,443
+brA -p icmp
+brB
+'
+
+iptables -N $CHAIN 2>/dev/null || iptables -F $CHAIN
+echo "$RULES" | while read -r br match; do
+    [ -n "$br" ] || continue
+    # shellcheck disable=SC2086
+    iptables -A $CHAIN -i br0 -o "$br" $match -j ACCEPT
+done
+
+# SDN_IA ends with "-i br+ -o br+ -j DROP"; jump to ours first.
+iptables -C SDN_IA -j $CHAIN 2>/dev/null || iptables -I SDN_IA 1 -j $CHAIN
+
+logger -t firewall-start "user rules applied ($1)"

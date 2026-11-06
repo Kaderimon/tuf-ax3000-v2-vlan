@@ -1,0 +1,117 @@
+From 7fab29fcbb7b3f4298d75d34d105e10ba7a22e11 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 13:57:59 +0000
+Subject: [PATCH] rc: run /jffs/scripts/firewall-start (Asuswrt-Merlin
+ semantics) at the end of start_firewall() and after each SDN_IA rebuild (arg
+ "sdn"); default jffs2_scripts=0
+
+Scripts and /jffs/configs run only with jffs2_scripts=1 (the Merlin
+check was "not 0", which fails open when the variable is missing; on
+the TUF test image the 0 default did not survive boot).
+---
+ release/src/router/rc/firewall.c     | 2 ++
+ release/src/router/rc/firewall_sdn.c | 2 ++
+ release/src/router/shared/Makefile   | 2 +-
+ release/src/router/shared/defaults.c | 1 +
+ release/src/router/shared/scripts.c  | 6 +++---
+ release/src/router/shared/shared.h   | 2 +-
+ 6 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/release/src/router/rc/firewall.c b/release/src/router/rc/firewall.c
+index 655d2f3e1..ac99114b6 100644
+--- a/release/src/router/rc/firewall.c
++++ b/release/src/router/rc/firewall.c
+@@ -9374,6 +9374,8 @@ add_mswan:
+ 	reload_filter_custom_rule();
+ #endif
+ 
++	run_custom_script("firewall-start", 30, wan_if, NULL);
++
+ leave:
+ 	file_unlock(lock);
+ 
+diff --git a/release/src/router/rc/firewall_sdn.c b/release/src/router/rc/firewall_sdn.c
+index d977314b8..4f0c224ed 100644
+--- a/release/src/router/rc/firewall_sdn.c
++++ b/release/src/router/rc/firewall_sdn.c
+@@ -2148,6 +2148,8 @@ int handle_SDN_internal_access(const char *logdrop, const char *logaccept)
+ 			}
+ #endif
+ 		}
++		// SDN_IA was flushed and rebuilt: let /jffs/scripts/firewall-start re-add its rules
++		run_custom_script("firewall-start", 30, "sdn", NULL);
+ 		FREE_MTLAN((void *)pmtl);
+ 	}
+ 	return 0;
+diff --git a/release/src/router/shared/Makefile b/release/src/router/shared/Makefile
+index f5caa4d9f..a9f8ea991 100644
+--- a/release/src/router/shared/Makefile
++++ b/release/src/router/shared/Makefile
+@@ -201,7 +201,7 @@ OBJS += llist.o
+ ifeq ($(RTCONFIG_MULTILAN_CFG),y)
+ OBJS += mtlan_utils.o
+ endif
+-ifeq ($(RTCONFIG_TOR),y)
++ifneq ($(RTCONFIG_TOR)$(RTCONFIG_MULTILAN_CFG),)
+ OBJS += scripts.o
+ endif
+ ifeq ($(RTCONFIG_AHS),y)
+diff --git a/release/src/router/shared/defaults.c b/release/src/router/shared/defaults.c
+index 22798cf67..95dddc671 100644
+--- a/release/src/router/shared/defaults.c
++++ b/release/src/router/shared/defaults.c
+@@ -3317,6 +3317,7 @@ struct nvram_tuple router_defaults[] = {
+ #if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2)
+ 	{ "jffs2_on", "1", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+ #endif
++	{ "jffs2_scripts", "0", CKN_STR1, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },	/* 1: run /jffs/scripts/ (firewall-start) */
+ 
+ #ifdef RTCONFIG_UBIFS
+ 	{ "ubifs_on", "1", CKN_STR_DEFAULT, CKN_TYPE_DEFAULT, CKN_ACC_LEVEL_DEFAULT, CKN_ENC_DEFAULT, 0 },
+diff --git a/release/src/router/shared/scripts.c b/release/src/router/shared/scripts.c
+index be75c75b9..cfb480a93 100644
+--- a/release/src/router/shared/scripts.c
++++ b/release/src/router/shared/scripts.c
+@@ -62,7 +62,7 @@ void run_custom_script(char *name, int timeout, char *arg1, char *arg2)
+ 	snprintf(script, sizeof(script), "/jffs/scripts/%s", name);
+ 
+ 	if (!stat(script, &st)) {
+-		if (nvram_match("jffs2_scripts", "0"))
++		if (!nvram_match("jffs2_scripts", "1"))
+ 			error = "custom script execution is disabled!";
+ 		else if (!(st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+ 			error = "script is not set executable!";
+@@ -104,7 +104,7 @@ void use_custom_config(char *config, char *target)
+         snprintf(filename, sizeof(filename), "/jffs/configs/%s", config);
+ 
+ 	if (f_exists(filename)) {
+-		if (nvram_match("jffs2_scripts", "0")) {
++		if (!nvram_match("jffs2_scripts", "1")) {
+ 			logmessage("custom config", "Found %s, but custom configs are disabled!", filename);
+ 			return;
+ 		}
+@@ -121,7 +121,7 @@ void append_custom_config(char *config, FILE *fp)
+ 	snprintf(filename, sizeof(filename), "/jffs/configs/%s.add", config);
+ 
+ 	if (f_exists(filename)) {
+-		if (nvram_match("jffs2_scripts", "0")) {
++		if (!nvram_match("jffs2_scripts", "1")) {
+ 			logmessage("custom config", "Found %s, but custom configs are disabled!", filename);
+ 			return;
+ 		}
+diff --git a/release/src/router/shared/shared.h b/release/src/router/shared/shared.h
+index e746bae81..770326024 100755
+--- a/release/src/router/shared/shared.h
++++ b/release/src/router/shared/shared.h
+@@ -3823,7 +3823,7 @@ extern int get_string_in_62(char *in_list, int idx, char *out, int out_len);
+ extern int vpns_use_tunnel(void);
+ extern int vpnc_use_tunnel(int vpnc_unit, const char *proto);
+ 
+-#ifdef RTCONFIG_TOR
++#if defined(RTCONFIG_TOR) || defined(RTCONFIG_MULTILAN_CFG)
+ /* scripts.c */
+ extern void run_custom_script(char *name, int timeout, char *arg1, char *arg2);
+ extern void run_postconf(char *name, char *config);
+-- 
+2.43.0
+
