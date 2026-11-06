@@ -1,0 +1,127 @@
+From 1f7f59beee74563e5ac954648592d6bf6fa1b655 Mon Sep 17 00:00:00 2001
+From: Mykyta Shupyliuk <15443199+Kaderimon@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 13:57:59 +0000
+Subject: [PATCH 18/19] SDN: with "access host service" off, a VLAN reaches the
+ router only for DHCP/DNS (+tcp/53) and ICMP; before, every service bound to
+ 0.0.0.0 answered on the VLAN bridge address (sshd, cfg_server, wanduck,
+ infosvr, ...)
+
+IPv4 and IPv6: with ahs off, SDN_FI accepts DHCP/DNS, tcp/53 and
+ICMP/ICMPv6 from the VLAN and drops everything else addressed to the
+router, including the bridge's own (link-local) IPv6 addresses.
+ICMPv6 is accepted explicitly: NDP/RS are untracked, not NEW.
+
+The INPUT jump to SDN_FI moves up, right after the br0/lo accepts, in
+filter_setting() and filter_setting2(). Before, it was the last rule,
+so the interface-less service accepts in between (sshd LAN+WAN,
+https web access from WAN, ftp, webdav, lpr, pptp, multicast)
+answered VLAN clients too. SDN_FI only has -i <sdn bridge> rules, so
+br0/WAN traffic is unaffected.
+---
+ release/src/router/rc/firewall.c     | 34 ++++++++++++++++------------
+ release/src/router/rc/firewall_sdn.c | 15 ++++++++++--
+ 2 files changed, 33 insertions(+), 16 deletions(-)
+
+diff --git a/release/src/router/rc/firewall.c b/release/src/router/rc/firewall.c
+index 734d55b35..655d2f3e1 100644
+--- a/release/src/router/rc/firewall.c
++++ b/release/src/router/rc/firewall.c
+@@ -5011,6 +5011,16 @@ TRACE_PT("writing Parental Control\n");
+ 		}
+ #endif
+ 
++#ifdef RTCONFIG_MULTILAN_CFG
++		/* SDN (VLAN) bridges: SDN_FI has the final say for them, before the
++		 * interface-less service accepts below (sshd, https, ftp, lpr, pptp, ...) */
++		fprintf(fp, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
++#ifdef RTCONFIG_IPV6
++		if (ipv6_enabled())
++			fprintf(fp_ipv6, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
++#endif
++#endif
++
+ 		/* Pass multicast */
+ 		if (nvram_get_int("mr_enable_x") || nvram_get_int("udpxy_enable_x")) {
+ 			fprintf(fp, "-A INPUT -p 2 -d 224.0.0.0/4 -j %s\n", logaccept);
+@@ -5303,13 +5313,6 @@ TRACE_PT("writing Parental Control\n");
+ #endif
+ #endif
+ 
+-#ifdef RTCONFIG_MULTILAN_CFG
+-		fprintf(fp, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
+-#ifdef RTCONFIG_IPV6
+-		if (ipv6_enabled())
+-			fprintf(fp_ipv6, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
+-#endif
+-#endif
+ 		fprintf(fp, "-A INPUT -j %s\n", logdrop);
+ 	}
+ 
+@@ -6714,6 +6717,16 @@ TRACE_PT("writing Parental Control\n");
+ 		}
+ #endif
+ 
++#ifdef RTCONFIG_MULTILAN_CFG
++		/* SDN (VLAN) bridges: SDN_FI has the final say for them, before the
++		 * interface-less service accepts below (sshd, https, ftp, lpr, pptp, ...) */
++		fprintf(fp, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
++#ifdef RTCONFIG_IPV6
++		if (ipv6_enabled())
++			fprintf(fp_ipv6, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
++#endif
++#endif
++
+ 		/* Pass multicast */
+ 		if (nvram_get_int("mr_enable_x") || nvram_get_int("udpxy_enable_x")) {
+ 			fprintf(fp, "-A INPUT -p 2 -d 224.0.0.0/4 -j %s\n", logaccept);
+@@ -7010,13 +7023,6 @@ TRACE_PT("writing Parental Control\n");
+ #endif
+ #endif
+ 
+-#ifdef RTCONFIG_MULTILAN_CFG
+-		fprintf(fp, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
+-#ifdef RTCONFIG_IPV6
+-		if (ipv6_enabled())
+-			fprintf(fp_ipv6, "-A INPUT -j %s\n", SDN_FILTER_INPUT_CHAIN);
+-#endif
+-#endif
+ 		fprintf(fp, "-A INPUT -j %s\n", logdrop);
+ 	}
+ 
+diff --git a/release/src/router/rc/firewall_sdn.c b/release/src/router/rc/firewall_sdn.c
+index 86a9e000b..d977314b8 100644
+--- a/release/src/router/rc/firewall_sdn.c
++++ b/release/src/router/rc/firewall_sdn.c
+@@ -370,6 +370,11 @@ int update_SDN_iptables(const MTLAN_T *pmtl, const char *logdrop, const char *lo
+ 				if (!pmtl->sdn_t.ahs_sw)
+ 				{
+ 					fprintf(fp, "-A %s -i %s -d %s -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, nvram_safe_get("lan_ipaddr"), logdrop);
++					// DNS over TCP (large replies) and ICMP, then nothing else on the router: services bound to 0.0.0.0
++					// are otherwise reachable on the SDN bridge address (sshd, cfg_server, wanduck, infosvr, ...)
++					fprintf(fp, "-A %s -i %s -p tcp --dport 53 -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, logaccept);
++					fprintf(fp, "-A %s -i %s -p icmp -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, logaccept);
++					fprintf(fp, "-A %s -i %s -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, logdrop);
+ 				}
+ 
+ 				// accept state NEW
+@@ -548,9 +553,15 @@ int update_SDN_iptables(const MTLAN_T *pmtl, const char *logdrop, const char *lo
+ 					}
+ 
+ 					// access host service
+-					if (!pmtl->sdn_t.ahs_sw && addr6[0] != '\0')
++					if (!pmtl->sdn_t.ahs_sw)
+ 					{
+-						fprintf(fp, "-A %s -i %s -d %s -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, addr6, logdrop);
++						if (addr6[0] != '\0')
++							fprintf(fp, "-A %s -i %s -d %s -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, addr6, logdrop);
++						// as for IPv4; ICMPv6 must pass (NDP/RS are untracked, not NEW) or IPv6 on the SDN breaks.
++						// Without the final drop the bridge's own (link-local) addresses reach every service
++						fprintf(fp, "-A %s -i %s -p tcp --dport 53 -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, logaccept);
++						fprintf(fp, "-A %s -i %s -p ipv6-icmp -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, logaccept);
++						fprintf(fp, "-A %s -i %s -j %s\n", SDN_FILTER_INPUT_CHAIN, pmtl->nw_t.ifname, logdrop);
+ 					}
+ 
+ 					// accept state NEW
+-- 
+2.43.0
+

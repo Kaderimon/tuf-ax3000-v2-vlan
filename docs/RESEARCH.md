@@ -288,6 +288,7 @@ string, must occur exactly once).
 | 0015 | client list, system status, QoS data empty while logged in; every `appGet.cgi` returns the login redirect. Prebuilt BR63 `httpd/prebuild/web_hook.o` `referer_check()` (built with `RTCONFIG_BUSINESS`) accepts a Referer only equal to the LAN IP or starting with `expertwifi.net` (`strncmp` len 14); the open code redirects the browser to `www.asusrouter.com`. Patching the closed string is not possible in place (4 bytes longer, neighbours in use) | `shared.h`: `DUT_DOMAIN_NAME` = `expertwifi.net` for `TUFAX3000_V2` (as BUSINESS). Same define feeds `httpd` (`ZVDOMAIN_NAMEVZ` in the dicts), `/etc/hosts`, dnsmasq, wanduck; `gencert.sh` already lists `expertwifi.net`. Web UI: `http://expertwifi.net` or the LAN IP |
 | 0016 | client list opens but shows 0 clients. Prebuilt BR63 `networkmap` was built with `RTCONFIG_CAPTIVE_PORTAL`, so its shared-memory `CLIENT_DETAIL_INFO_TABLE` has `subunit[255]` (260644 bytes, `movw 0xfa24`); our `httpd` (no CAPTIVE_PORTAL) expected 260388 bytes and read `ip_mac_num` 255 bytes too early                                                                                                                                                 | `networkmap.h`: `subunit[]` also for `TUFAX3000_V2`                                                                                                                                                                                                                       |
 | 0017 | no VLAN tab (page itself works). Closed `libwebapi` `RCisSupport("mtlancfg")` returns `is_amas_support() ? 2 : 0`; closed BR63 `sw-hw-auth/prebuild/hw_auth.o` `getAmasSupportMode()` only whitelists `BR63`/`EBR63`/`ExpertWiFi_EBR63` → `amas_support=0` (AiMesh off too)                                                                                                                                                                                   | `tools/patchstr.py hw_auth.o ExpertWiFi_EBR63 TUF-AX3000_V2` (the string is shared with the ASUS remote-access tunnel whitelist, which now accepts TUF too)                                                                                                               |
+| 0018 | VLAN clients reach every router service bound to `0.0.0.0` on the VLAN bridge address (sshd, `cfg_server`, `wanduck`, `infosvr`, …, §6). `update_SDN_iptables()` with `ahs_sw` off only drops `-d lan_ipaddr` | with `ahs_sw` off (the web UI always writes 0), `SDN_FI` accepts tcp/53 after the udp DHCP/DNS rule, then drops everything else from the VLAN bridge. ICMP (`INPUT_ICMP`) and RELATED,ESTABLISHED still pass before `SDN_FI`. IPv4 only; the IPv6 rules are unchanged |
 
 Other closed objects that still contain `BR63` / `EBR63` strings, not examined
 yet: `rc/prebuild/init-broadcom.o` (unused for TUF since 0008),
@@ -431,7 +432,7 @@ after boot is normal.
 ### 5.4 Open issues
 
 - AiMesh pairing not tested; closed BR63 `cfg_mnt` / `obd` objects unchecked (§4).
-- Checks from the list below that are still open, and the firewall follow-ups in §6.
+- Checks from the list below that are still open.
 - Features removed, or expected to misbehave, compared with stock: §5.5.
 - LAN LED-off mode: the BR63 LED helpers still call `rtkswitch`.
 
@@ -525,48 +526,35 @@ the UI default ("All"). Numbers refer to the checks in §5.
 | Router services from a VLAN | `update_SDN_iptables()` writes to `SDN_FI`: DHCP/DNS accept; if `ahs_sw` ("access host service") is off, drop `-d lan_ipaddr`; then `-m state --state NEW -j ACCEPT`. The router's own address **on the VLAN bridge** is not dropped, so every service bound to `0.0.0.0` is reachable from the VLAN: `dropbear` (22, incl. password login if enabled), `cfg_server` (7788), `wanduck` (18017/18018), `miniupnpd` (HTTP port), `infosvr` (udp 9999), SSDP 1900, avahi 5353, `eapd` (udp 59000). `httpd` binds `lan_ipaddr` only and `envrams` (5152) is dropped in `INPUT`, so those are safe |
 | Manual rules                | rules added with `iptables` at runtime are lost when rc rebuilds the firewall (observed within minutes; trigger not identified). This build calls no user script, so there is no supported way to keep them                                                                                                                                                                                                                                                                                                                                                                                   |
 
-### Proposed follow-ups (not yet patched)
+### Firewall follow-ups (patches 0018, 0019; on hardware since 2026-11-04, image g7fab29f)
 
-**(a) Generic fix: VLAN → router.** In `update_SDN_iptables()`, when `ahs_sw`
-is off, also drop traffic to the bridge's own address
-(`pmtl->nw_t.addr`) after the DHCP/DNS accepts, and accept tcp/53 there
-(large DNS replies). Result: with "access host service" off, a VLAN client
-can reach the router only for DHCP, DNS and ICMP (`INPUT_ICMP` runs before
-`SDN_FI`). Matches what the UI option suggests; nothing site-specific.
+**(a) VLAN → router (0018).** With `ahs_sw` off, `SDN_FI` for each VLAN bridge
+is: udp 53/67/68 accept, drop `-d lan_ipaddr`, tcp 53 accept, drop the rest.
+A VLAN client can then reach the router only for DHCP, DNS and ICMP. The
+`ahs_sw` field (`sdn_rl` field 16, `access_host_service` in `sdn.js`) is never
+changed by the web UI, so this applies to every SDN network. To open one, set
+that field to 1 in `sdn_rl` by hand. IPv6 (`update_SDN_iptables()` v6 part)
+still only drops the bridge's global v6 address; untouched, since a blanket
+drop would also block RS/NS if ICMPv6 is not accepted earlier.
 
-**(b) User hook: `firewall-start`.** `shared/scripts.c` already has
-`run_custom_script()` (runs `/jffs/scripts/<name>` if executable, unless
-`jffs2_scripts=0`) and it is linked into rc, but nothing calls it except
-`run_postconf("torrc")`. Proposal:
+### Firewall test results (2026-11-06, image g7fab29f)
 
-- call `run_custom_script("firewall-start", 0, wan_if, NULL)` at the end of
-  `start_firewall()` and after each `handle_SDN_internal_access()` call in
-  `rc/sdn.c`, so the script also runs when only the SDN rules are rebuilt;
-- add default `jffs2_scripts=0` to `defaults.c` (off unless the user runs
-  `nvram set jffs2_scripts=1; nvram commit`);
-- semantics as in Asuswrt-Merlin, so existing documentation applies.
+Image `g7fab29f` (patches up to 0019) running for 1 day 18 h, two SDN
+networks (bridges `brA` and `brB`, one /24 each), `jffs2_scripts=1`,
+[`examples/firewall-start`](../examples/firewall-start) installed. 0020 is not
+in this image: `3rd-party=asusvlan` was set by hand after boot (it is reset to
+empty at the next boot without 0020). Probes with `nc -z -w 3`, `dig`, `ping`
+from a Debian client on VLAN B; a closed port and a dropped
+packet look the same to `nc`, so the `SDN_FI` / `SDN_IA` DROP counters were
+read on the router before and after (they went from 0 to 12, 7 and 6).
 
-Example `/jffs/scripts/firewall-start` (site rules stay on the router, not in
-the image; `brA` = exposed VLAN, `brB` = internal VLAN, interface names from
-`brctl show`):
-
-```sh
-#!/bin/sh
-for b in brA brB; do    # VLAN -> router: DHCP and DNS only
-  iptables -I SDN_FI 1 -i $b -j DROP
-  iptables -I SDN_FI 1 -i $b -p tcp --dport 53 -j ACCEPT
-  iptables -I SDN_FI 1 -i $b -p udp -m multiport --dports 53,67 -j ACCEPT
-done
-# main LAN -> VLAN, one way (replies pass FORWARD's RELATED,ESTABLISHED rule)
-iptables -I SDN_IA 1 -i br0 -o brA -p tcp --dport 22 -j ACCEPT
-iptables -I SDN_IA 2 -i br0 -o brA -p icmp -j ACCEPT
-iptables -I SDN_IA 3 -i br0 -o brB -j ACCEPT
-```
-
-The script must tolerate running more than once per boot (whether rc flushes
-`SDN_FI`/`SDN_IA` before every call is not verified; if not, delete before
-insert, `iptables -D … 2>/dev/null`). With (a) in place the `SDN_FI` part is
-not needed.
+| Test (from a VLAN B client)                                                | Result                                                                                  |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| router's `brB` address, tcp 22, 80, 7788, 18017, 18018, 5152, 1900         | dropped (0018 catch-all DROP); without 0018, 22/7788/18017 listen on `0.0.0.0` and answer |
+| router's `brB` address: DNS (udp and tcp 53), DHCP lease, ping             | works                                                                                   |
+| router's main LAN address (`lan_ipaddr`), tcp 22, 53, 80 and ping          | dropped                                                                                 |
+| VLAN B → main LAN PC (tcp 22), VLAN B → VLAN A host (tcp 22)               | dropped (`SDN_IA`); the same port on that host is open from the main LAN                |
+| internet (`curl https://example.com`)                                      | works (200)                                                                             |
 
 Still open from the test: Access-port check (2) and hw-switching state after
 it, `tcpdump -e` leak test on a client of another port, VLAN hopping from a
