@@ -9,7 +9,7 @@ BCM6756 SoC; the tree already contains a `TUF-AX3000_V2` target), plus patches
 for everything that breaks because the closed parts of that tree were compiled
 for the EBR63. Full analysis: [`docs/RESEARCH.md`](docs/RESEARCH.md).
 
-## Status (2026-10-23, image `g69420e1`)
+## Status (2026-11-06, image `g7fab29f`)
 
 Running on a real TUF-AX3000 V2 as a one-time-boot test image, with official
 firmware as fallback in the other slot.
@@ -20,6 +20,8 @@ firmware as fallback in the other slot.
 | Web UI: login, System Status, SSID, client list, VPN, Adaptive QoS pages  | works                                                                                                                                                         |
 | Network → VLAN, Guest Network Pro / SDN networks with own VLAN ID + DHCP  | works: trunk port to an 802.1Q switch carries the VLANs tagged and the main LAN untagged; VLANs isolated from main LAN and each other, have internet          |
 | AiMesh menu                                                               | shown (`amas_support=3`); pairing not tested                                                                                                                  |
+| VLAN → router: only DHCP, DNS, ICMP (patch 0018); `/jffs/scripts/firewall-start` hook (0019) | works: from a VLAN client every other router port is dropped, VLANs cannot reach the main LAN or each other; the example script opens main LAN → VLAN one way (RESEARCH §6) |
+| `jffs2_scripts` kept at boot (0020), `/jffs/configs/hosts.add` etc. for local DNS names (0021) | built (image `g5891170`), not flashed yet; the 0020 workaround (`nvram set 3rd-party=asusvlan`) tested by hand |
 | Access-port VLAN, leak test from a client, throughput, IPv6, LED-off mode | not tested                                                                                                                                                    |
 | Likely to misbehave | AiMesh pairing (closed EBR63 AiMesh daemons), LAN LED-off mode, wired LAN↔LAN speed once a port is Access/Trunk (hardware switching off), web-UI firmware update / auto-upgrade, `router.asus.com` name (now `expertwifi.net`) |
 | Removed (closed parts missing from the EBR63 GPL) | Router Boost, link aggregation (LACP), UU accelerator, Alexa / IFTTT / Google Assistant, Instant Guard, AiCloud / WebDAV, Smart Sync, Download Master |
